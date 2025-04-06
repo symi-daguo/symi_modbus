@@ -1,0 +1,73 @@
+write_coil:
+  name: Write Coil
+  description: Write a coil value to a modbus device.
+  fields:
+    address:
+      name: Address
+      description: Coil address (required).
+      required: true
+      example: 0
+      selector:
+        number:
+          min: 0
+          mode: box
+    slave:
+      name: Slave
+      description: Slave address (required).
+      required: true
+      example: 10
+      selector:
+        number:
+          min: 0
+          mode: box
+    state:
+      name: State
+      description: Value to write (required, a boolean or list of booleans).
+      required: true
+      example: true
+      selector:
+        boolean:
+    hub:
+      name: Hub
+      description: Hub name (optional, defaults to "symi_modbus").
+      example: symi_modbus
+      selector:
+        text:
+    
+write_register:
+  name: Write Register
+  description: Write a register value to a modbus device.
+  fields:
+    address:
+      name: Address
+      description: Register address (required).
+      required: true
+      example: 0
+      selector:
+        number:
+          min: 0
+          mode: box
+    slave:
+      name: Slave
+      description: Slave address (required).
+      required: true
+      example: 10
+      selector:
+        number:
+          min: 0
+          mode: box
+    value:
+      name: Value
+      description: Value to write (required, an integer or list of integers).
+      required: true
+      example: 1
+      selector:
+        number:
+          min: 0
+          mode: box
+    hub:
+      name: Hub
+      description: Hub name (optional, defaults to "symi_modbus").
+      example: symi_modbus
+      selector:
+        text: 

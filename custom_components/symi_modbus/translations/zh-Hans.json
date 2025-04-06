@@ -1,0 +1,41 @@
+{
+    "title": "亖米 Modbus",
+    "config": {
+      "step": {
+        "user": {
+          "title": "定义你的 Modbus 连接",
+          "data": {
+            "type": "连接类型",
+            "host": "主机地址",
+            "port": "端口",
+            "slave": "从站地址 (默认: 0x0A/10)",
+            "method": "方法",
+            "baudrate": "波特率",
+            "bytesize": "字节大小",
+            "parity": "校验位",
+            "stopbits": "停止位",
+            "rtuovertcp": "使用 RTU over TCP",
+            "scan_interval": "扫描间隔 (秒)"
+          }
+        }
+      },
+      "error": {
+        "invalid_host": "无效的主机名或IP地址",
+        "cannot_connect": "连接失败，请检查配置",
+        "already_configured": "此从站设备已配置"
+      },
+      "abort": {
+        "already_configured": "此从站设备已配置"
+      }
+    },
+    "options": {
+      "step": {
+        "init": {
+          "title": "亖米 Modbus 选项",
+          "data": {
+            "scan_interval": "扫描间隔 (秒)"
+          }
+        }
+      }
+    }
+  }

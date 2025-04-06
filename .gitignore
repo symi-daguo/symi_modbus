@@ -1,0 +1,33 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Temp files
+*.tmp
+
+# Old project files that are being merged
+modbus1/
+modbus_switch/
+symi_modbus_configuration.yaml
+开发需求.md
+亖米logo白.png 

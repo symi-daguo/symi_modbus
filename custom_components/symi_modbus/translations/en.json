@@ -1,0 +1,41 @@
+{
+  "title": "Symi Modbus",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Define your Modbus connection",
+        "data": {
+          "type": "Connection Type",
+          "host": "Host",
+          "port": "Port",
+          "slave": "Slave address (default: 0x0A/10)",
+          "method": "Method",
+          "baudrate": "Baudrate",
+          "bytesize": "Bytesize",
+          "parity": "Parity",
+          "stopbits": "Stopbits",
+          "rtuovertcp": "Use RTU over TCP",
+          "scan_interval": "Scan interval (seconds)"
+        }
+      }
+    },
+    "error": {
+      "invalid_host": "Invalid hostname or IP address",
+      "cannot_connect": "Failed to connect, please check your configuration",
+      "already_configured": "This slave device is already configured"
+    },
+    "abort": {
+      "already_configured": "This slave device is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Symi Modbus Options",
+        "data": {
+          "scan_interval": "Scan interval (seconds)"
+        }
+      }
+    }
+  }
+} 
