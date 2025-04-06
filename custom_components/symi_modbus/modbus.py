@@ -4,7 +4,14 @@ import logging
 from datetime import timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
-from pymodbus.client.sync import ModbusSerialClient, ModbusTcpClient, ModbusUdpClient
+# 更新pymodbus导入路径，兼容最新版本
+try:
+    # 适配pymodbus 3.x
+    from pymodbus.client import ModbusSerialClient, ModbusTcpClient, ModbusUdpClient
+except ImportError:
+    # 兼容pymodbus 2.x
+    from pymodbus.client.sync import ModbusSerialClient, ModbusTcpClient, ModbusUdpClient
+
 from pymodbus.constants import Defaults
 from pymodbus.exceptions import ModbusException
 from pymodbus.transaction import ModbusRtuFramer, ModbusAsciiFramer
@@ -48,8 +55,13 @@ from .const import (
     CONF_TCP,
     CONF_UDP,
     DEFAULT_SCAN_INTERVAL,
+    DEFAULT_DELAY_MS,
     DOMAIN,
 )
+
+# 常量定义
+TIMEOUT = 3
+RETRIES = 3
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -365,49 +377,56 @@ def setup_client(config, name):
     """Set up the Modbus client."""
     client = None
     delay_ms = config.get(CONF_DELAY, DEFAULT_DELAY_MS)
+    timeout = config.get(CONF_TIMEOUT, TIMEOUT)
+    retries = config.get(CONF_RETRIES, RETRIES)
+    retry_on_empty = config.get(CONF_RETRY_ON_EMPTY, True)
 
     if config[CONF_TYPE] == CONF_SERIAL:
-        method = config[CONF_METHOD]
-        if method == "rtu":
-            framer = ModbusRtuFramer
-        else:
-            framer = ModbusAsciiFramer
+        method = config.get(CONF_METHOD, "rtu")
+        port = config[CONF_PORT]
+        baudrate = config.get(CONF_BAUDRATE, 9600)
+        stopbits = config.get(CONF_STOPBITS, 1)
+        bytesize = config.get(CONF_BYTESIZE, 8)
+        parity = config.get(CONF_PARITY, "N")
+        
         client = ModbusSerialClient(
             method=method,
-            port=config[CONF_PORT],
-            baudrate=config[CONF_BAUDRATE],
-            stopbits=config[CONF_STOPBITS],
-            bytesize=config[CONF_BYTESIZE],
-            parity=config[CONF_PARITY],
-            timeout=TIMEOUT,
-            retry_on_empty=True,
+            port=port,
+            baudrate=baudrate,
+            stopbits=stopbits,
+            bytesize=bytesize,
+            parity=parity,
+            timeout=timeout,
+            retries=retries,
+            retry_on_empty=retry_on_empty,
         )
     elif config[CONF_TYPE] == CONF_TCP:
         host = config[CONF_HOST]
         port = config[CONF_PORT]
-        # Check if RTU over TCP is enabled
+        
+        # 检查是否启用RTU over TCP
+        kwargs = {}
         if config.get(CONF_RTUOVERTCP, False):
-            framer = ModbusRtuFramer
-        else:
-            framer = None
-
-        # Initialize the client with or without framer parameter based on its value
-        if framer is not None:
-            client = ModbusTcpClient(
-                host=host,
-                port=port,
-                timeout=TIMEOUT,
-                retries=RETRIES,
-                retry_on_empty=True,
-                framer=framer,
-            )
-        else:
-            client = ModbusTcpClient(
-                host=host,
-                port=port,
-                timeout=TIMEOUT,
-                retries=RETRIES,
-                retry_on_empty=True,
-            )
+            kwargs["framer"] = ModbusRtuFramer
+        
+        client = ModbusTcpClient(
+            host=host,
+            port=port,
+            timeout=timeout,
+            retries=retries,
+            retry_on_empty=retry_on_empty,
+            **kwargs
+        )
+    elif config[CONF_TYPE] == CONF_UDP:
+        host = config[CONF_HOST]
+        port = config[CONF_PORT]
+        
+        client = ModbusUdpClient(
+            host=host,
+            port=port,
+            timeout=timeout,
+            retries=retries,
+            retry_on_empty=retry_on_empty,
+        )
 
     return client, delay_ms 
