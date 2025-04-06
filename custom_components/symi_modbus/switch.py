@@ -111,7 +111,7 @@ class ModbusSwitch(SwitchEntity):
         self._unique_id = unique_id
         self._device_class = device_class
         self._is_on = False
-        self._available = False
+        self._available = True
         
         # Register callback for state updates
         self._hub.add_callback(self.async_on_state_change)

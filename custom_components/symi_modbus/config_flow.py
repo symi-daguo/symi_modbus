@@ -45,14 +45,13 @@ CONNECTION_TYPE_SCHEMA = vol.Schema(
                 CONF_SERIAL: "Serial",
             }
         ),
-        vol.Optional(CONF_RTUOVERTCP, default=False): cv.boolean,
     }
 )
 
 TCP_CONNECTION_SCHEMA = vol.Schema(
     {
-        vol.Required(CONF_HOST): cv.string,
         vol.Optional(CONF_PORT, default=DEFAULT_TCP_PORT): cv.port,
+        vol.Optional(CONF_RTUOVERTCP, default=False): cv.boolean,
     }
 )
 
@@ -83,6 +82,7 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Symi Modbus."""
 
     VERSION = 1
+    CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL
 
     def __init__(self):
         """Initialize the config flow."""
@@ -101,7 +101,6 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Handle the initial step - select connection type."""
         if user_input is not None:
             self._connection_type = user_input[CONF_TYPE]
-            self._connection_data = {CONF_RTUOVERTCP: user_input.get(CONF_RTUOVERTCP, False)}
             if self._connection_type == CONF_TCP:
                 return await self.async_step_tcp()
             else:
@@ -122,7 +121,7 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "invalid_host"
             
             if not errors:
-                self._connection_data.update(user_input)
+                self._connection_data = user_input
                 return await self.async_step_slave()
 
         return self.async_show_form(
@@ -134,7 +133,7 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_serial(self, user_input=None):
         """Handle Serial connection configuration."""
         if user_input is not None:
-            self._connection_data.update(user_input)
+            self._connection_data = user_input
             return await self.async_step_slave()
 
         return self.async_show_form(
@@ -175,10 +174,9 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_TYPE: self._connection_type,
                     CONF_NAME: name,
                     CONF_SLAVE: slave,
-                    CONF_SCAN_INTERVAL: DEFAULT_SCAN_INTERVAL,  # Always 1 second by default
+                    CONF_SCAN_INTERVAL: 1,  # Always 1 second
+                    **self._connection_data,
                 }
-                # 添加所有连接数据
-                self._current_slave_data.update(self._connection_data)
                 
                 # Check if entry already exists
                 await self.async_set_unique_id(unique_id)
@@ -209,6 +207,12 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # If user wants to add another, go back to slave step
             if user_input.get("add_another", False):
                 # We need to return to the slave step to add another slave
+                # but first we need to create the entry for the current slave
+                self.hass.async_create_task(
+                    self.hass.config_entries.async_forward_entry_setup(
+                        result, "switch"
+                    )
+                )
                 # Return to the slave step
                 return await self.async_step_slave()
             
@@ -218,7 +222,7 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="add_another",
             data_schema=ADD_ANOTHER_SCHEMA,
             description_placeholders={
-                "slave": f"{self._current_slave_data[CONF_SLAVE]:02X}",
+                "slave": f"0x{self._current_slave_data[CONF_SLAVE]:02X}",
             },
         )
 
@@ -238,7 +242,7 @@ class SymiModbusOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_SCAN_INTERVAL,
                 default=self.config_entry.options.get(
-                    CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
+                    CONF_SCAN_INTERVAL, 1
                 ),
             ): cv.positive_int,
         }

@@ -2,20 +2,7 @@
 import asyncio
 import logging
 from datetime import timedelta
-from typing import Any, Dict, List, Optional, Tuple
-
-# 更新pymodbus导入路径，兼容最新版本
-try:
-    # 适配pymodbus 3.x
-    from pymodbus.client import ModbusSerialClient, ModbusTcpClient, ModbusUdpClient
-except ImportError:
-    # 兼容pymodbus 2.x
-    from pymodbus.client.sync import ModbusSerialClient, ModbusTcpClient, ModbusUdpClient
-
-from pymodbus.constants import Defaults
-from pymodbus.exceptions import ModbusException
-from pymodbus.transaction import ModbusRtuFramer, ModbusAsciiFramer
-from pymodbus.pdu import ModbusResponse
+from typing import Any, Dict, List, Optional, Tuple, Callable, Set
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
@@ -31,21 +18,11 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_time_interval
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import (
     ATTR_ADDRESS,
-    CALL_TYPE_COIL,
-    CALL_TYPE_DISCRETE,
-    CALL_TYPE_REGISTER_HOLDING,
-    CALL_TYPE_REGISTER_INPUT,
-    CALL_TYPE_WRITE_COIL,
-    CALL_TYPE_WRITE_COILS,
-    CALL_TYPE_WRITE_REGISTER,
-    CALL_TYPE_WRITE_REGISTERS,
     CONF_BAUDRATE,
     CONF_BYTESIZE,
-    CONF_CLOSE_COMM_ON_ERROR,
     CONF_PARITY,
     CONF_RETRIES,
     CONF_RETRY_ON_EMPTY,
@@ -58,51 +35,12 @@ from .const import (
     DEFAULT_DELAY_MS,
     DOMAIN,
 )
-
-# 常量定义
-TIMEOUT = 3
-RETRIES = 3
+from .crc16 import crc16_fn
 
 _LOGGER = logging.getLogger(__name__)
 
-# Define PyModbus call attributes
-PYMODBUS_CALL = {
-    CALL_TYPE_COIL: {
-        "attr": "bits",
-        "func_name": "read_coils",
-    },
-    CALL_TYPE_DISCRETE: {
-        "attr": "bits",
-        "func_name": "read_discrete_inputs",
-    },
-    CALL_TYPE_REGISTER_HOLDING: {
-        "attr": "registers",
-        "func_name": "read_holding_registers",
-    },
-    CALL_TYPE_REGISTER_INPUT: {
-        "attr": "registers",
-        "func_name": "read_input_registers",
-    },
-    CALL_TYPE_WRITE_COIL: {
-        "attr": "value",
-        "func_name": "write_coil",
-    },
-    CALL_TYPE_WRITE_COILS: {
-        "attr": "count",
-        "func_name": "write_coils",
-    },
-    CALL_TYPE_WRITE_REGISTER: {
-        "attr": "value",
-        "func_name": "write_register",
-    },
-    CALL_TYPE_WRITE_REGISTERS: {
-        "attr": "count",
-        "func_name": "write_registers",
-    },
-}
-
 class ModbusHub:
-    """Thread safe wrapper class for pymodbus."""
+    """Thread safe wrapper class for modbus communication."""
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize the Modbus hub."""
@@ -111,22 +49,28 @@ class ModbusHub:
         self._config = entry.data
         self._name = self._config[CONF_NAME]
         self._type = self._config[CONF_TYPE]
-        self._client = None
         self._lock = asyncio.Lock()
         self._callbacks = []
-        self._in_error = False
-        self._unsub_poll = None
-        self._unsub_poll_slave = {}
-        self._slave_data = {}
-        self._polling_slaves = {}
         self._scan_interval = self._config.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
-        
-        # Calculate delay between polls
-        self._delay = self._config.get(CONF_DELAY, 0)
-        
-        # Keep track of slaves to poll
+        self._delay = self._config.get(CONF_DELAY, DEFAULT_DELAY_MS)
+        self._slave_data = {}
         self._slaves_to_poll = {}
-    
+        self._unsub_poll = None
+        self._in_error = False
+        
+        # Connection details
+        if self._type == CONF_TCP:
+            self._host = self._config[CONF_HOST]
+            self._port = self._config.get(CONF_PORT, 502)
+        elif self._type == CONF_SERIAL:
+            # For future serial support
+            self._port = self._config[CONF_PORT]
+            self._baudrate = self._config.get(CONF_BAUDRATE, 9600)
+            self._bytesize = self._config.get(CONF_BYTESIZE, 8)
+            self._parity = self._config.get(CONF_PARITY, "N")
+            self._stopbits = self._config.get(CONF_STOPBITS, 1)
+            self._rtu = self._config.get(CONF_METHOD, "rtu") == "rtu"
+        
     @property
     def name(self) -> str:
         """Return the name of this hub."""
@@ -135,36 +79,17 @@ class ModbusHub:
     async def async_setup(self) -> bool:
         """Set up the modbus hub."""
         _LOGGER.debug("Setting up Modbus hub %s", self._name)
-        try:
-            # Use the setup_client function to create the Modbus client
-            self._client, self._delay = await self._hass.async_add_executor_job(
-                setup_client, self._config, self._name
-            )
-            if self._client is None:
-                return False
-                
-            # Test connection
-            result = await self._hass.async_add_executor_job(
-                lambda: self._client.connect()
-            )
-            
-            if not result or not self._client.socket:
-                _LOGGER.error("Failed to connect to Modbus device")
-                return False
-            
-            # Start polling timer
-            self._unsub_poll = async_track_time_interval(
-                self._hass,
-                self.async_poll_slaves,
-                timedelta(seconds=self._scan_interval),
-            )
-            
-            return True
-        except ModbusException as exception:
-            _LOGGER.error("Modbus connection failed: %s", exception)
-            return False
+        
+        # Start polling timer
+        self._unsub_poll = async_track_time_interval(
+            self._hass,
+            self.async_poll_slaves,
+            timedelta(seconds=self._scan_interval),
+        )
+        
+        return True
 
-    def add_callback(self, callback_func):
+    def add_callback(self, callback_func: Callable):
         """Register a callback function."""
         self._callbacks.append(callback_func)
 
@@ -176,257 +101,144 @@ class ModbusHub:
             else:
                 _LOGGER.info(error_text)
             self._in_error = error_state
-
-    def _pymodbus_connect(self) -> bool:
-        """Connect to modbus device and return True if successful."""
-        try:
-            if self._type == CONF_SERIAL:
-                port = self._config[CONF_PORT]
-                baudrate = self._config.get(CONF_BAUDRATE, 9600)
-                bytesize = self._config.get(CONF_BYTESIZE, 8)
-                parity = self._config.get(CONF_PARITY, "N")
-                stopbits = self._config.get(CONF_STOPBITS, 1)
-                method = self._config.get(CONF_METHOD, "rtu")
-                
-                # Create serial client
-                self._client = ModbusSerialClient(
-                    method=method,
-                    port=port,
-                    baudrate=baudrate,
-                    bytesize=bytesize,
-                    parity=parity,
-                    stopbits=stopbits,
-                    timeout=self._config.get(CONF_TIMEOUT, 3),
-                    retries=self._config.get(CONF_RETRIES, 3),
-                    retry_on_empty=self._config.get(CONF_RETRY_ON_EMPTY, False),
-                )
-            elif self._type == CONF_TCP:
-                host = self._config[CONF_HOST]
-                port = self._config.get(CONF_PORT, 502)
-                
-                # If using RTU over TCP
-                if self._config.get(CONF_RTUOVERTCP, False):
-                    framer = ModbusRtuFramer
-                else:
-                    framer = None
-                
-                # Create TCP client
-                if framer:
-                    self._client = ModbusTcpClient(
-                        host=host,
-                        port=port,
-                        timeout=self._config.get(CONF_TIMEOUT, 3),
-                        retries=self._config.get(CONF_RETRIES, 3),
-                        retry_on_empty=self._config.get(CONF_RETRY_ON_EMPTY, False),
-                        framer=framer,
-                    )
-                else:
-                    self._client = ModbusTcpClient(
-                        host=host,
-                        port=port,
-                        timeout=self._config.get(CONF_TIMEOUT, 3),
-                        retries=self._config.get(CONF_RETRIES, 3),
-                        retry_on_empty=self._config.get(CONF_RETRY_ON_EMPTY, False),
-                    )
-            elif self._type == CONF_UDP:
-                host = self._config[CONF_HOST]
-                port = self._config.get(CONF_PORT, 502)
-                
-                # Create UDP client
-                self._client = ModbusUdpClient(
-                    host=host,
-                    port=port,
-                    timeout=self._config.get(CONF_TIMEOUT, 3),
-                    retries=self._config.get(CONF_RETRIES, 3),
-                    retry_on_empty=self._config.get(CONF_RETRY_ON_EMPTY, False),
-                )
-            else:
-                _LOGGER.error("Unsupported Modbus connection type: %s", self._type)
-                return False
-            
-            # Test connection
-            self._client.connect()
-            if not self._client.socket:
-                _LOGGER.error("Failed to connect to Modbus device")
-                return False
-            
-            return True
-        except ModbusException as exception:
-            _LOGGER.error("Error connecting to Modbus device: %s", exception)
-            return False
     
-    def _pymodbus_call(self, unit, address, value, call_type) -> Optional[ModbusResponse]:
-        """Call modbus method."""
-        try:
-            if not self._client.is_socket_open():
-                if not self._client.connect():
-                    self._log_error("Failed to reconnect to modbus device")
-                    return None
-                else:
-                    self._log_error("Reconnected to modbus device", error_state=False)
-            
-            call_detail = PYMODBUS_CALL[call_type]
-            func = getattr(self._client, call_detail["func_name"])
-            
-            if call_type in (CALL_TYPE_WRITE_COIL, CALL_TYPE_WRITE_REGISTER):
-                # Single write (address, value)
-                result = func(address, value, unit=unit)
-            elif call_type in (CALL_TYPE_WRITE_COILS, CALL_TYPE_WRITE_REGISTERS):
-                # Multiple write (address, [values])
-                result = func(address, value, unit=unit)
-            else:
-                # Read (address, count)
-                count = len(value) if isinstance(value, list) else int(value)
-                result = func(address, count, unit=unit)
-            
-            if not hasattr(result, call_detail["attr"]):
-                self._log_error(f"No {call_detail['attr']} in result: {result}")
-                return None
-            
-            self._log_error("Successful modbus call", error_state=False)
-            return result
-        except ModbusException as exception:
-            self._log_error(f"Error during modbus call: {exception}")
+    async def async_send(self, data):
+        """Send data over TCP connection."""
+        if self._type != CONF_TCP:
+            _LOGGER.error("Only TCP connections are currently supported")
             return None
-    
-    async def async_pymodbus_call(self, unit, address, value, call_type) -> Optional[ModbusResponse]:
-        """Call modbus method."""
-        async with self._lock:
-            return await self._hass.async_add_executor_job(
-                self._pymodbus_call, unit, address, value, call_type
-            )
+        
+        try:
+            coro = asyncio.open_connection(self._host, self._port)
+            reader, writer = await asyncio.wait_for(coro, 1)
+        except Exception as e:
+            self._log_error(f"TCP connection failed: {e}")
+            return None
+        
+        writer.write(bytes(data))
+        try:
+            read = reader.read(20)
+            buf = await asyncio.wait_for(read, 0.5)
+            if len(buf) > 2:
+                return buf
+            else:
+                self._log_error("Received insufficient data")
+                return None
+        except Exception as e:
+            self._log_error(f"Response timeout: {e}")
+            return None
+        finally:
+            writer.close()
     
     def register_slaves_to_poll(self, slave, addresses):
         """Register slaves and addresses to poll."""
         if slave not in self._slaves_to_poll:
             self._slaves_to_poll[slave] = {"addresses": []}
         
-        self._slaves_to_poll[slave]["addresses"].extend(addresses)
+        # Add new addresses
+        for address in addresses:
+            if address not in self._slaves_to_poll[slave]["addresses"]:
+                self._slaves_to_poll[slave]["addresses"].append(address)
         
         # Calculate start and count for efficient polling
         self._slaves_to_poll[slave]["start"] = min(self._slaves_to_poll[slave]["addresses"])
-        self._slaves_to_poll[slave]["count"] = max(self._slaves_to_poll[slave]["addresses"]) - min(self._slaves_to_poll[slave]["addresses"]) + 1
+        max_addr = max(self._slaves_to_poll[slave]["addresses"])
+        self._slaves_to_poll[slave]["count"] = max_addr - self._slaves_to_poll[slave]["start"] + 1
         
-        _LOGGER.debug("Registered polling for slave %s, addresses: %s", slave, addresses)
+        _LOGGER.debug("Registered polling for slave %s, addresses: %s", slave, self._slaves_to_poll[slave]["addresses"])
+    
+    async def async_req_state(self, slave):
+        """Request coil states from a slave."""
+        start = self._slaves_to_poll[slave]["start"]
+        count = self._slaves_to_poll[slave]["count"]
+        
+        # Create Modbus read coils request
+        data = [slave, 1, 0, start, 0, count]
+        for crc in crc16_fn(data):
+            data.append(crc)
+        
+        async with self._lock:
+            response = await self.async_send(data)
+            return response
+    
+    def handle_state(self, data):
+        """Process state data from response."""
+        if len(data) < 3 or data[1] != 1:
+            return False
+        
+        slave = data[0]
+        if slave not in self._slaves_to_poll:
+            return False
+        
+        states = {}
+        start = self._slaves_to_poll[slave]["start"]
+        for i in range(data[2]):
+            bits = data[i+3]
+            for j in range(8):
+                addr = start + j + i*8
+                states[addr] = True if bits >> j & 0x01 else False
+        
+        # Store data
+        self._slave_data[slave] = states
+        
+        # Notify callbacks
+        for callback_func in self._callbacks:
+            callback_func(states, slave)
+        
+        return True
+    
+    def check_crc(self, data):
+        """Check CRC of response data."""
+        if len(data) < 3:
+            return False
+        crc = crc16_fn(data[:-2])
+        return (data[-2] == crc[0]) & (data[-1] == crc[1])
     
     async def async_poll_slaves(self, now=None):
         """Poll all registered slaves."""
-        for slave, config in self._slaves_to_poll.items():
-            start = config["start"]
-            count = config["count"]
+        for slave in self._slaves_to_poll:
+            response = await self.async_req_state(slave)
             
-            # Request coil states
-            result = await self.async_pymodbus_call(
-                slave, start, count, CALL_TYPE_COIL
-            )
-            
-            if result is None:
+            if response is None:
                 continue
             
-            # Process the result
-            states = {}
-            for i in range(count):
-                if i < len(result.bits):
-                    states[start + i] = result.bits[i]
-                else:
-                    states[start + i] = False
+            if not self.check_crc(response):
+                _LOGGER.warning("CRC check failed for slave %s", slave)
+                continue
             
-            # Store data
-            self._slave_data[slave] = states
-            
-            # Notify callbacks
-            for callback_func in self._callbacks:
-                callback_func(states, slave)
+            self.handle_state(response[:-2])
             
             # Small delay between polls if configured
             if self._delay > 0:
                 await asyncio.sleep(self._delay / 1000)
+    
+    async def write_coil(self, slave, address, value):
+        """Write to a coil."""
+        data = [slave, 5, 0, address, 0, 0]
+        if value:
+            data[4] = 0xff
+        
+        for crc in crc16_fn(data):
+            data.append(crc)
+        
+        async with self._lock:
+            response = await self.async_send(data)
+            if response is None:
+                return False
+            
+            if not self.check_crc(response):
+                _LOGGER.warning("CRC check failed for write response")
+                return False
+            
+            # Update the state in our local cache
+            if slave in self._slave_data and address in self._slave_data[slave]:
+                self._slave_data[slave][address] = value
+            
+            return True
     
     @callback
     async def async_stop(self, event=None):
         """Stop the hub."""
         if self._unsub_poll is not None:
             self._unsub_poll()
-            self._unsub_poll = None
-            
-        await self.async_close()
-    
-    async def async_close(self):
-        """Close the connection."""
-        if self._client:
-            try:
-                await self._hass.async_add_executor_job(self._pymodbus_close)
-            except Exception as exception:  # pylint: disable=broad-except
-                _LOGGER.error("Error closing Modbus connection: %s", exception)
-            self._client = None
-        return True
-    
-    def _pymodbus_close(self):
-        """Close the Modbus connection."""
-        try:
-            self._client.close()
-        except Exception as exception:  # pylint: disable=broad-except
-            _LOGGER.error("Error closing Modbus connection: %s", exception)
-        
-    async def write_coil(self, slave, address, value):
-        """Write to a coil."""
-        result = await self.async_pymodbus_call(slave, address, value, CALL_TYPE_WRITE_COIL)
-        return result is not None
-
-def setup_client(config, name):
-    """Set up the Modbus client."""
-    client = None
-    delay_ms = config.get(CONF_DELAY, DEFAULT_DELAY_MS)
-    timeout = config.get(CONF_TIMEOUT, TIMEOUT)
-    retries = config.get(CONF_RETRIES, RETRIES)
-    retry_on_empty = config.get(CONF_RETRY_ON_EMPTY, True)
-
-    if config[CONF_TYPE] == CONF_SERIAL:
-        method = config.get(CONF_METHOD, "rtu")
-        port = config[CONF_PORT]
-        baudrate = config.get(CONF_BAUDRATE, 9600)
-        stopbits = config.get(CONF_STOPBITS, 1)
-        bytesize = config.get(CONF_BYTESIZE, 8)
-        parity = config.get(CONF_PARITY, "N")
-        
-        client = ModbusSerialClient(
-            method=method,
-            port=port,
-            baudrate=baudrate,
-            stopbits=stopbits,
-            bytesize=bytesize,
-            parity=parity,
-            timeout=timeout,
-            retries=retries,
-            retry_on_empty=retry_on_empty,
-        )
-    elif config[CONF_TYPE] == CONF_TCP:
-        host = config[CONF_HOST]
-        port = config[CONF_PORT]
-        
-        # 检查是否启用RTU over TCP
-        kwargs = {}
-        if config.get(CONF_RTUOVERTCP, False):
-            kwargs["framer"] = ModbusRtuFramer
-        
-        client = ModbusTcpClient(
-            host=host,
-            port=port,
-            timeout=timeout,
-            retries=retries,
-            retry_on_empty=retry_on_empty,
-            **kwargs
-        )
-    elif config[CONF_TYPE] == CONF_UDP:
-        host = config[CONF_HOST]
-        port = config[CONF_PORT]
-        
-        client = ModbusUdpClient(
-            host=host,
-            port=port,
-            timeout=timeout,
-            retries=retries,
-            retry_on_empty=retry_on_empty,
-        )
-
-    return client, delay_ms 
+            self._unsub_poll = None 
