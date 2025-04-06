@@ -73,6 +73,12 @@ SLAVE_SCHEMA = vol.Schema(
     }
 )
 
+ADD_ANOTHER_SCHEMA = vol.Schema(
+    {
+        vol.Required("add_another", default=False): cv.boolean,
+    }
+)
+
 class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Symi Modbus."""
 
@@ -84,6 +90,7 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._connection_type = None
         self._connection_data = {}
         self._slaves = []
+        self._current_slave_data = None
 
     @staticmethod
     @callback
@@ -164,7 +171,7 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     unique_id = f"modbus_serial_{port}_{slave:02X}"
                 
                 # Create connection for this slave
-                connection_data = {
+                self._current_slave_data = {
                     CONF_TYPE: self._connection_type,
                     CONF_NAME: name,
                     CONF_SLAVE: slave,
@@ -177,24 +184,47 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._abort_if_unique_id_configured()
                 
                 # Ask if user wants to add another slave
-                return await self.async_step_add_another_slave(connection_data)
+                return await self.async_step_add_another()
 
         return self.async_show_form(
             step_id="slave",
             data_schema=SLAVE_SCHEMA,
             errors=errors,
             description_placeholders={
-                "current_slaves": ", ".join([f"0x{s:02X}" for s in self._slaves]),
+                "current_slaves": ", ".join([f"0x{s:02X}" for s in self._slaves]) if self._slaves else "无",
                 "slave_count": len(self._slaves),
             },
         )
 
-    async def async_step_add_another_slave(self, connection_data):
+    async def async_step_add_another(self, user_input=None):
         """Ask if user wants to add another slave."""
-        # Create entry for the current slave
-        return self.async_create_entry(
-            title=connection_data[CONF_NAME],
-            data=connection_data,
+        if user_input is not None:
+            # Create entry for the current slave
+            result = self.async_create_entry(
+                title=self._current_slave_data[CONF_NAME],
+                data=self._current_slave_data,
+            )
+
+            # If user wants to add another, go back to slave step
+            if user_input.get("add_another", False):
+                # We need to return to the slave step to add another slave
+                # but first we need to create the entry for the current slave
+                self.hass.async_create_task(
+                    self.hass.config_entries.async_forward_entry_setup(
+                        result, "switch"
+                    )
+                )
+                # Return to the slave step
+                return await self.async_step_slave()
+            
+            return result
+
+        return self.async_show_form(
+            step_id="add_another",
+            data_schema=ADD_ANOTHER_SCHEMA,
+            description_placeholders={
+                "slave": f"0x{self._current_slave_data[CONF_SLAVE]:02X}",
+            },
         )
 
 class SymiModbusOptionsFlow(config_entries.OptionsFlow):

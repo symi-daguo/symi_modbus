@@ -7,6 +7,7 @@ DEFAULT_SCAN_INTERVAL: Final = 1
 DEFAULT_PORT: Final = 8899
 DEFAULT_SLAVE: Final = 0x0A
 DEFAULT_TCP_PORT: Final = 502
+DEFAULT_DELAY_MS: Final = 0
 
 # Device attributes
 ATTR_ADDRESS: Final = "address"

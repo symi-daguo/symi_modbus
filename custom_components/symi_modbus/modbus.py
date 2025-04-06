@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from pymodbus.client.sync import ModbusSerialClient, ModbusTcpClient, ModbusUdpClient
 from pymodbus.constants import Defaults
 from pymodbus.exceptions import ModbusException
-from pymodbus.transaction import ModbusRtuFramer
+from pymodbus.transaction import ModbusRtuFramer, ModbusAsciiFramer
 from pymodbus.pdu import ModbusResponse
 
 from homeassistant.config_entries import ConfigEntry
@@ -187,14 +187,23 @@ class ModbusHub:
                     framer = None
                 
                 # Create TCP client
-                self._client = ModbusTcpClient(
-                    host=host,
-                    port=port,
-                    timeout=self._config.get(CONF_TIMEOUT, 3),
-                    retries=self._config.get(CONF_RETRIES, 3),
-                    retry_on_empty=self._config.get(CONF_RETRY_ON_EMPTY, False),
-                    framer=framer,
-                )
+                if framer:
+                    self._client = ModbusTcpClient(
+                        host=host,
+                        port=port,
+                        timeout=self._config.get(CONF_TIMEOUT, 3),
+                        retries=self._config.get(CONF_RETRIES, 3),
+                        retry_on_empty=self._config.get(CONF_RETRY_ON_EMPTY, False),
+                        framer=framer,
+                    )
+                else:
+                    self._client = ModbusTcpClient(
+                        host=host,
+                        port=port,
+                        timeout=self._config.get(CONF_TIMEOUT, 3),
+                        retries=self._config.get(CONF_RETRIES, 3),
+                        retry_on_empty=self._config.get(CONF_RETRY_ON_EMPTY, False),
+                    )
             elif self._type == CONF_UDP:
                 host = self._config[CONF_HOST]
                 port = self._config.get(CONF_PORT, 502)
@@ -338,4 +347,55 @@ class ModbusHub:
     async def write_coil(self, slave, address, value):
         """Write to a coil."""
         result = await self.async_pymodbus_call(slave, address, value, CALL_TYPE_WRITE_COIL)
-        return result is not None 
+        return result is not None
+
+def setup_client(config, name):
+    """Set up the Modbus client."""
+    client = None
+    delay_ms = config.get(CONF_DELAY, DEFAULT_DELAY_MS)
+
+    if config[CONF_TYPE] == CONF_SERIAL:
+        method = config[CONF_METHOD]
+        if method == "rtu":
+            framer = ModbusRtuFramer
+        else:
+            framer = ModbusAsciiFramer
+        client = ModbusSerialClient(
+            method=method,
+            port=config[CONF_PORT],
+            baudrate=config[CONF_BAUDRATE],
+            stopbits=config[CONF_STOPBITS],
+            bytesize=config[CONF_BYTESIZE],
+            parity=config[CONF_PARITY],
+            timeout=TIMEOUT,
+            retry_on_empty=True,
+        )
+    elif config[CONF_TYPE] == CONF_TCP:
+        host = config[CONF_HOST]
+        port = config[CONF_PORT]
+        # Check if RTU over TCP is enabled
+        if config.get(CONF_RTUOVERTCP, False):
+            framer = ModbusRtuFramer
+        else:
+            framer = None
+
+        # Initialize the client with or without framer parameter based on its value
+        if framer is not None:
+            client = ModbusTcpClient(
+                host=host,
+                port=port,
+                timeout=TIMEOUT,
+                retries=RETRIES,
+                retry_on_empty=True,
+                framer=framer,
+            )
+        else:
+            client = ModbusTcpClient(
+                host=host,
+                port=port,
+                timeout=TIMEOUT,
+                retries=RETRIES,
+                retry_on_empty=True,
+            )
+
+    return client, delay_ms 
