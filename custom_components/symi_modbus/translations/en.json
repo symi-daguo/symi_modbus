@@ -3,26 +3,44 @@
   "config": {
     "step": {
       "user": {
-        "title": "Define your Modbus connection",
+        "title": "Select connection type",
         "data": {
-          "type": "Connection Type",
+          "type": "Connection Type"
+        }
+      },
+      "tcp": {
+        "title": "Configure TCP connection",
+        "data": {
           "host": "Host",
           "port": "Port",
-          "slave": "Slave address (default: 0x0A/10)",
-          "method": "Method",
+          "rtuovertcp": "Use RTU over TCP"
+        }
+      },
+      "serial": {
+        "title": "Configure Serial connection",
+        "data": {
+          "port": "Port",
           "baudrate": "Baudrate",
           "bytesize": "Bytesize",
           "parity": "Parity",
           "stopbits": "Stopbits",
-          "rtuovertcp": "Use RTU over TCP",
-          "scan_interval": "Scan interval (seconds)"
+          "method": "Method"
+        }
+      },
+      "slave": {
+        "title": "Add Modbus slave device",
+        "description": "Current slaves: {current_slaves} (Total: {slave_count}/10)",
+        "data": {
+          "slave": "Slave address (default: 0x0A/10)"
         }
       }
     },
     "error": {
       "invalid_host": "Invalid hostname or IP address",
       "cannot_connect": "Failed to connect, please check your configuration",
-      "already_configured": "This slave device is already configured"
+      "already_configured": "This slave device is already configured",
+      "slave_already_added": "This slave address has already been added",
+      "too_many_slaves": "Maximum number of slaves (10) reached"
     },
     "abort": {
       "already_configured": "This slave device is already configured"

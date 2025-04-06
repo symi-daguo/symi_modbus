@@ -9,5 +9,5 @@
   "requirements": ["pymodbus==2.5.2"],
   "version": "1.0.0",
   "icon": "mdi:toggle-switch",
-  "logo": "icons/icon.png"
+  "logo": "https://raw.githubusercontent.com/symi-daguo/symi_modbus/main/icon.png"
 } 
