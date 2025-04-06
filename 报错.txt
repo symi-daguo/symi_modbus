@@ -1,0 +1,102 @@
+此错误来自自定义集成。
+
+日志记录器: homeassistant
+来源: custom_components/symi_modbus/modbus.py:256
+集成: 亖米 Modbus (文档)
+首次出现: 14:40:45 (1 次总计出现)
+上次记录: 14:40:45
+
+Error doing job: Task exception was never retrieved (None)
+Traceback (most recent call last):
+  File "/config/custom_components/symi_modbus/modbus.py", line 295, in async_poll_slaves
+    result = await self.async_pymodbus_call(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        slave, start, count, CALL_TYPE_COIL
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/config/custom_components/symi_modbus/modbus.py", line 271, in async_pymodbus_call
+    return await self._hass.async_add_executor_job(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        self._pymodbus_call, unit, address, value, call_type
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/usr/local/lib/python3.13/concurrent/futures/thread.py", line 59, in run
+    result = self.fn(*self.args, **self.kwargs)
+  File "/config/custom_components/symi_modbus/modbus.py", line 256, in _pymodbus_call
+    result = func(address, count, unit=unit)
+  File "/usr/local/lib/python3.13/site-packages/pymodbus/client/common.py", line 48, in read_coils
+    return self.execute(request)
+           ~~~~~~~~~~~~^^^^^^^^^
+  File "/usr/local/lib/python3.13/site-packages/pymodbus/client/sync.py", line 109, in execute
+    return self.transaction.execute(request)
+           ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "/usr/local/lib/python3.13/site-packages/pymodbus/transaction.py", line 174, in execute
+    response, last_exception = self._transact(
+                               ~~~~~~~~~~~~~~^
+        request,
+        ^^^^^^^^
+    ...<2 lines>...
+        broadcast=broadcast
+        ^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/usr/local/lib/python3.13/site-packages/pymodbus/transaction.py", line 293, in _transact
+    result = self._recv(response_length, full)
+  File "/usr/local/lib/python3.13/site-packages/pymodbus/transaction.py", line 361, in _recv
+    result = self.client.framer.recvPacket(expected_response_length)
+  File "/usr/local/lib/python3.13/site-packages/pymodbus/framer/__init__.py", line 49, in recvPacket
+    return self.client.recv(size)
+           ~~~~~~~~~~~~~~~~^^^^^^
+  File "/usr/local/lib/python3.13/site-packages/pymodbus/client/sync.py", line 89, in recv
+    return self._recv(size)
+           ~~~~~~~~~~^^^^^^
+  File "/usr/local/lib/python3.13/site-packages/pymodbus/client/sync.py", line 296, in _recv
+    recv_data = self.socket.recv(recv_size)
+                ^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'recv'
+
+
+此错误来自自定义集成。
+
+日志记录器: custom_components.symi_modbus.modbus
+来源: custom_components/symi_modbus/modbus.py:151
+集成: 亖米 Modbus (文档)
+首次出现: 14:39:44 (25 次总计出现)
+上次记录: 14:42:09
+
+No bits in result: Modbus Error: [Input/Output] Modbus Error: [Invalid Message] No response received, expected at least 8 bytes (0 received)
+No bits in result: Modbus Error: [Input/Output] No Response received from the remote unit/Unable to decode response
+
+
+此错误来自自定义集成。
+
+日志记录器: homeassistant
+来源: custom_components/symi_modbus/modbus.py:237
+集成: 亖米 Modbus (文档)
+首次出现: 14:40:45 (127 次总计出现)
+上次记录: 14:42:10
+
+Error doing job: Task exception was never retrieved (None)
+Traceback (most recent call last):
+  File "/config/custom_components/symi_modbus/modbus.py", line 295, in async_poll_slaves
+    result = await self.async_pymodbus_call(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        slave, start, count, CALL_TYPE_COIL
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/config/custom_components/symi_modbus/modbus.py", line 271, in async_pymodbus_call
+    return await self._hass.async_add_executor_job(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        self._pymodbus_call, unit, address, value, call_type
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/usr/local/lib/python3.13/concurrent/futures/thread.py", line 59, in run
+    result = self.fn(*self.args, **self.kwargs)
+  File "/config/custom_components/symi_modbus/modbus.py", line 237, in _pymodbus_call
+    if not self._client.is_socket_open():
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'is_socket_open'

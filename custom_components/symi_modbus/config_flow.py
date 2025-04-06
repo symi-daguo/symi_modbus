@@ -45,6 +45,7 @@ CONNECTION_TYPE_SCHEMA = vol.Schema(
                 CONF_SERIAL: "Serial",
             }
         ),
+        vol.Optional(CONF_RTUOVERTCP, default=False): cv.boolean,
     }
 )
 
@@ -52,7 +53,6 @@ TCP_CONNECTION_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_HOST): cv.string,
         vol.Optional(CONF_PORT, default=DEFAULT_TCP_PORT): cv.port,
-        vol.Optional(CONF_RTUOVERTCP, default=False): cv.boolean,
     }
 )
 
@@ -102,6 +102,7 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Handle the initial step - select connection type."""
         if user_input is not None:
             self._connection_type = user_input[CONF_TYPE]
+            self._connection_data = {CONF_RTUOVERTCP: user_input.get(CONF_RTUOVERTCP, False)}
             if self._connection_type == CONF_TCP:
                 return await self.async_step_tcp()
             else:
@@ -122,7 +123,7 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "invalid_host"
             
             if not errors:
-                self._connection_data = user_input
+                self._connection_data.update(user_input)
                 return await self.async_step_slave()
 
         return self.async_show_form(

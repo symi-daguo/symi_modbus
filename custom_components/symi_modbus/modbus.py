@@ -124,8 +124,20 @@ class ModbusHub:
         """Set up the modbus hub."""
         _LOGGER.debug("Setting up Modbus hub %s", self._name)
         try:
-            result = await self._hass.async_add_executor_job(self._pymodbus_connect)
-            if not result:
+            # Use the setup_client function to create the Modbus client
+            self._client, self._delay = await self._hass.async_add_executor_job(
+                setup_client, self._config, self._name
+            )
+            if self._client is None:
+                return False
+                
+            # Test connection
+            result = await self._hass.async_add_executor_job(
+                lambda: self._client.connect()
+            )
+            
+            if not result or not self._client.socket:
+                _LOGGER.error("Failed to connect to Modbus device")
                 return False
             
             # Start polling timer

@@ -1,13 +1,13 @@
 {
   "domain": "symi_modbus",
   "name": "Symi Modbus",
+  "after_dependencies": ["modbus"],
   "codeowners": ["@symi-daguo"],
   "config_flow": true,
   "dependencies": [],
   "documentation": "https://github.com/symi-daguo/symi_modbus",
   "iot_class": "local_polling",
-  "requirements": ["pymodbus==2.5.2"],
-  "version": "1.0.0",
-  "icon": "mdi:toggle-switch",
-  "logo": "https://raw.githubusercontent.com/symi-daguo/symi_modbus/main/icon.png"
+  "requirements": [],
+  "version": "0.1.0",
+  "icon_url": "https://raw.githubusercontent.com/symi-daguo/symi_modbus/main/custom_components/symi_modbus/icons/icon.png"
 } 

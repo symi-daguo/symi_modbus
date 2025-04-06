@@ -5,15 +5,15 @@
         "user": {
           "title": "选择连接类型",
           "data": {
-            "type": "连接类型"
+            "type": "连接类型",
+            "rtuovertcp": "使用RTU over TCP"
           }
         },
         "tcp": {
           "title": "配置TCP连接",
           "data": {
             "host": "主机",
-            "port": "端口",
-            "rtuovertcp": "使用RTU over TCP"
+            "port": "端口"
           }
         },
         "serial": {
