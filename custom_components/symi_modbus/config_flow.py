@@ -1,4 +1,4 @@
-"""Config flow for Symi Modbus integration."""
+"""Config flow for Symi Modbus."""
 import ipaddress
 import logging
 from typing import Any, Dict, Optional
@@ -8,35 +8,35 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import (
     CONF_HOST,
+    CONF_METHOD,
     CONF_NAME,
     CONF_PORT,
-    CONF_TYPE,
-    CONF_SLAVE,
     CONF_SCAN_INTERVAL,
-    CONF_DEVICE,
-    CONF_METHOD,
+    CONF_SLAVE,
+    CONF_TIMEOUT,
+    CONF_TYPE,
 )
 from homeassistant.core import callback
 import homeassistant.helpers.config_validation as cv
 
 from .const import (
-    DOMAIN,
-    DEFAULT_PORT,
-    DEFAULT_SCAN_INTERVAL,
-    DEFAULT_TCP_PORT,
-    DEFAULT_SLAVE,
-    CONF_SERIAL,
-    CONF_TCP,
     CONF_BAUDRATE,
     CONF_BYTESIZE,
     CONF_PARITY,
-    CONF_STOPBITS,
+    CONF_RETRIES,
+    CONF_RETRY_ON_EMPTY,
     CONF_RTUOVERTCP,
+    CONF_SERIAL,
+    CONF_STOPBITS,
+    CONF_TCP,
+    DEFAULT_SCAN_INTERVAL,
+    DEFAULT_SLAVE,
+    DEFAULT_TCP_PORT,
+    DOMAIN,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
-# Define configuration schemas
 CONNECTION_TYPE_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_TYPE, default=CONF_TCP): vol.In(
@@ -50,6 +50,7 @@ CONNECTION_TYPE_SCHEMA = vol.Schema(
 
 TCP_CONNECTION_SCHEMA = vol.Schema(
     {
+        vol.Required(CONF_HOST): cv.string,
         vol.Optional(CONF_PORT, default=DEFAULT_TCP_PORT): cv.port,
         vol.Optional(CONF_RTUOVERTCP, default=False): cv.boolean,
     }
@@ -242,9 +243,9 @@ class SymiModbusOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_SCAN_INTERVAL,
                 default=self.config_entry.options.get(
-                    CONF_SCAN_INTERVAL, 1
+                    CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
                 ),
-            ): cv.positive_int,
+            ): vol.All(vol.Coerce(int), vol.Range(min=1, max=60)),
         }
 
         return self.async_show_form(step_id="init", data_schema=vol.Schema(options)) 

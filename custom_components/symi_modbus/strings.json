@@ -13,7 +13,7 @@
         "data": {
           "host": "Host",
           "port": "Port",
-          
+          "rtuovertcp": "Use RTU over TCP"
         }
       },
       "serial": {
