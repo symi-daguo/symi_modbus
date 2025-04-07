@@ -62,6 +62,9 @@ class ModbusHub:
         if self._type == CONF_TCP:
             self._host = self._config[CONF_HOST]
             self._port = self._config.get(CONF_PORT, 502)
+            self._rtuovertcp = self._config.get(CONF_RTUOVERTCP, False)
+            if self._rtuovertcp:
+                _LOGGER.debug("Using RTU over TCP for %s", self._name)
         elif self._type == CONF_SERIAL:
             # For future serial support
             self._port = self._config[CONF_PORT]
