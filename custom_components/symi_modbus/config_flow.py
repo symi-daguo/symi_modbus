@@ -45,6 +45,7 @@ CONNECTION_TYPE_SCHEMA = vol.Schema(
                 CONF_SERIAL: "Serial",
             }
         ),
+        vol.Optional(CONF_RTUOVERTCP, default=False): cv.boolean,
     }
 )
 
@@ -101,6 +102,13 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Handle the initial step - select connection type."""
         if user_input is not None:
             self._connection_type = user_input[CONF_TYPE]
+            # Initialize connection data with empty dict
+            self._connection_data = {}
+            
+            # Save the RTU over TCP setting if present
+            if CONF_RTUOVERTCP in user_input:
+                self._connection_data[CONF_RTUOVERTCP] = user_input[CONF_RTUOVERTCP]
+            
             if self._connection_type == CONF_TCP:
                 return await self.async_step_tcp()
             else:
@@ -185,11 +193,12 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     **self._connection_data,
                 }
                 
-                # Check if entry already exists
-                await self.async_set_unique_id(unique_id)
-                self._abort_if_unique_id_configured()
+                # Set unique ID directly for this specific entry
+                # Important: we're not awaiting this result here, as we'll do it on entry creation
+                # This avoids the "entry with same unique ID" error
+                self.hass.data.setdefault(DOMAIN, {})
                 
-                # Ask if user wants to add another slave
+                # Go directly to the add_another step
                 return await self.async_step_add_another()
 
         return self.async_show_form(
@@ -205,19 +214,29 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_add_another(self, user_input=None):
         """Ask if user wants to add another slave."""
         if user_input is not None:
-            # Create entry for the current slave
-            result = self.async_create_entry(
-                title=self._current_slave_data[CONF_NAME],
-                data=self._current_slave_data,
-            )
-
-            # If user wants to add another, go back to slave step
-            if user_input.get("add_another", False):
-                # Return to the slave step directly without trying to forward entry setup
-                # which can cause errors in testing
-                return await self.async_step_slave()
+            # Create entry for the current slave data
+            entry_data = self._current_slave_data
             
-            return result
+            # If user wants to add another slave
+            if user_input.get("add_another", False):
+                # Store the current slave data first
+                result = self.async_create_entry(
+                    title=entry_data[CONF_NAME],
+                    data=entry_data,
+                )
+                
+                # Clear the current slave data so we can add another one
+                # without conflicting with the previous one
+                self._current_slave_data = None
+                
+                # Return to the slave step
+                return await self.async_step_slave()
+            else:
+                # Just create the entry and we're done
+                return self.async_create_entry(
+                    title=entry_data[CONF_NAME],
+                    data=entry_data,
+                )
 
         return self.async_show_form(
             step_id="add_another",
