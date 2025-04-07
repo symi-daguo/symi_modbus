@@ -68,15 +68,18 @@ async def async_setup_entry(
     
     # Get slave address from config entry
     slave = config_entry.data.get(CONF_SLAVE, DEFAULT_SLAVE)
+    
+    # Create 32 switch entities (1-32) for this slave
     addresses = list(range(32))  # 0-31
     
     # Register these addresses for polling
     hub.register_slaves_to_poll(slave, addresses)
     
     # Create entities
-    for address in addresses:
-        # Format: 0Aswitch01, 0Aswitch02, etc.
-        name = f"{slave:02X}switch{address:02d}"
+    for i, address in enumerate(addresses):
+        # Format display names as 1-32 (even though addresses are 0-31)
+        display_number = i + 1  # Convert from 0-31 to 1-32 for display
+        name = f"{slave:02X}switch{display_number:02d}"
         unique_id = f"{config_entry.entry_id}_{slave}_{address}"
         
         entities.append(
@@ -86,6 +89,7 @@ async def async_setup_entry(
                 address,
                 name,
                 unique_id,
+                display_number,
             )
         )
     
@@ -101,12 +105,14 @@ class ModbusSwitch(SwitchEntity):
         address: int,
         name: str,
         unique_id: str,
+        display_number: int,
         device_class: Optional[str] = None,
     ) -> None:
         """Initialize the Modbus switch."""
         self._hub = hub
         self._slave = slave
         self._address = address
+        self._display_number = display_number
         self._name = name
         self._unique_id = unique_id
         self._device_class = device_class
@@ -124,7 +130,7 @@ class ModbusSwitch(SwitchEntity):
     @property
     def name(self) -> str:
         """Return the name of the switch."""
-        return self._name
+        return f"{self._hub.name} 线路 {self._display_number}"
 
     @property
     def unique_id(self) -> str:
@@ -136,7 +142,7 @@ class ModbusSwitch(SwitchEntity):
         """Return device information."""
         return DeviceInfo(
             identifiers={(DOMAIN, f"{self._hub.name}_{self._slave}")},
-            name=f"Symi Modbus Slave {self._slave}",
+            name=f"Modbus TCP {self._slave:02X}",
             manufacturer="Symi",
             model="Modbus Switch Module",
         )

@@ -150,7 +150,27 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             slave = user_input[CONF_SLAVE]
             
-            # Check if this slave is already added
+            # Check if this slave is already added in Home Assistant
+            # This checks ALL entries in the config, not just the current flow
+            for entry in self._async_current_entries():
+                if entry.data.get(CONF_SLAVE) == slave and entry.data.get(CONF_TYPE) == self._connection_type:
+                    if self._connection_type == CONF_TCP:
+                        host = self._connection_data[CONF_HOST]
+                        port = self._connection_data[CONF_PORT]
+                        entry_host = entry.data.get(CONF_HOST)
+                        entry_port = entry.data.get(CONF_PORT)
+                        if host == entry_host and port == entry_port:
+                            errors["base"] = "already_configured"
+                            break
+                    else:
+                        # For serial connections, just check the port
+                        port = self._connection_data[CONF_PORT]
+                        entry_port = entry.data.get(CONF_PORT)
+                        if port == entry_port:
+                            errors["base"] = "already_configured"
+                            break
+            
+            # Also check if this slave was already added in this flow session
             if slave in self._slaves:
                 errors["base"] = "slave_already_added"
             
@@ -181,10 +201,9 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     **self._connection_data,
                 }
                 
-                # Set unique ID directly for this specific entry
-                # Important: we're not awaiting this result here, as we'll do it on entry creation
-                # This avoids the "entry with same unique ID" error
-                self.hass.data.setdefault(DOMAIN, {})
+                # Set unique ID for this specific slave
+                await self.async_set_unique_id(unique_id)
+                self._abort_if_unique_id_configured()
                 
                 # Go directly to the add_another step
                 return await self.async_step_add_another()
@@ -213,9 +232,9 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     data=entry_data,
                 )
                 
-                # Clear the current slave data so we can add another one
-                # without conflicting with the previous one
+                # Clear the current slave data and unique ID to avoid conflicts
                 self._current_slave_data = None
+                self.unique_id = None
                 
                 # Return to the slave step
                 return await self.async_step_slave()
