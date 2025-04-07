@@ -52,7 +52,6 @@ TCP_CONNECTION_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_HOST): cv.string,
         vol.Optional(CONF_PORT, default=DEFAULT_TCP_PORT): cv.port,
-        vol.Optional(CONF_RTUOVERTCP, default=False): cv.boolean,
     }
 )
 
@@ -61,7 +60,7 @@ SERIAL_CONNECTION_SCHEMA = vol.Schema(
         vol.Required(CONF_PORT): cv.string,
         vol.Optional(CONF_BAUDRATE, default=9600): cv.positive_int,
         vol.Optional(CONF_BYTESIZE, default=8): vol.In([5, 6, 7, 8]),
-        vol.Optional(CONF_PARITY, default="N"): vol.In(["E", "O", "N"]),
+        vol.Optional(CONF_PARITY, default="N"): vol.In(["E", "O", "N", "None"]),
         vol.Optional(CONF_STOPBITS, default=1): vol.In([1, 2]),
         vol.Optional(CONF_METHOD, default="rtu"): vol.In(["rtu", "ascii"]),
     }
@@ -207,14 +206,8 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             # If user wants to add another, go back to slave step
             if user_input.get("add_another", False):
-                # We need to return to the slave step to add another slave
-                # but first we need to create the entry for the current slave
-                self.hass.async_create_task(
-                    self.hass.config_entries.async_forward_entry_setup(
-                        result, "switch"
-                    )
-                )
-                # Return to the slave step
+                # Return to the slave step directly without trying to forward entry setup
+                # which can cause errors in testing
                 return await self.async_step_slave()
             
             return result

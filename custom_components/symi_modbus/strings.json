@@ -12,8 +12,7 @@
         "title": "Configure TCP connection",
         "data": {
           "host": "Host",
-          "port": "Port",
-          "rtuovertcp": "Use RTU over TCP"
+          "port": "Port"
         }
       },
       "serial": {
