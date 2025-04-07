@@ -5,8 +5,7 @@
       "user": {
         "title": "Select connection type",
         "data": {
-          "type": "Connection Type",
-          "rtuovertcp": "Use RTU over TCP"
+          "type": "Connection Type"
         }
       },
       "tcp": {

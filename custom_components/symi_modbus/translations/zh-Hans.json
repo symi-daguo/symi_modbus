@@ -5,8 +5,7 @@
         "user": {
           "title": "选择连接类型",
           "data": {
-            "type": "连接类型",
-            "rtuovertcp": "使用RTU over TCP"
+            "type": "连接类型"
           }
         },
         "tcp": {

@@ -44,8 +44,7 @@ CONNECTION_TYPE_SCHEMA = vol.Schema(
                 CONF_TCP: "TCP",
                 CONF_SERIAL: "Serial",
             }
-        ),
-        vol.Optional(CONF_RTUOVERTCP, default=False): cv.boolean,
+        )
     }
 )
 
@@ -105,10 +104,6 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # Initialize connection data with empty dict
             self._connection_data = {}
             
-            # Save the RTU over TCP setting if present
-            if CONF_RTUOVERTCP in user_input:
-                self._connection_data[CONF_RTUOVERTCP] = user_input[CONF_RTUOVERTCP]
-            
             if self._connection_type == CONF_TCP:
                 return await self.async_step_tcp()
             else:
@@ -129,13 +124,6 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "invalid_host"
             
             if not errors:
-                # Preserve RTU over TCP setting from the first step
-                if CONF_RTUOVERTCP in self._connection_data:
-                    user_input[CONF_RTUOVERTCP] = self._connection_data[CONF_RTUOVERTCP]
-                else:
-                    # Default to False if not set
-                    user_input[CONF_RTUOVERTCP] = False
-                
                 self._connection_data = user_input
                 return await self.async_step_slave()
 
