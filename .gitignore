@@ -24,3 +24,6 @@ ENV/
 
 # Temp files
 *.tmp
+
+# Local release artifacts (build manually for GitHub Release upload)
+*.zip
