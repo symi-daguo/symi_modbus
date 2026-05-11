@@ -1,6 +1,6 @@
 write_coil:
   name: Write Coil
-  description: Write a coil value to a modbus device.
+  description: Write a coil value to a Modbus device.
   fields:
     address:
       name: Address
@@ -13,7 +13,7 @@ write_coil:
           mode: box
     slave:
       name: Slave
-      description: Slave address (required).
+      description: Slave unit ID (required).
       required: true
       example: 10
       selector:
@@ -22,21 +22,21 @@ write_coil:
           mode: box
     state:
       name: State
-      description: Value to write (required, a boolean or list of booleans).
+      description: Value to write (boolean or list of booleans).
       required: true
       example: true
       selector:
         boolean:
     hub:
       name: Hub
-      description: Hub name (optional, defaults to "symi_modbus").
-      example: symi_modbus
+      description: Integration entry title shown in Settings (same as the hub name, e.g. Modbus TCP 0A). Optional; default is a legacy placeholder and may not match your entry.
+      example: Modbus TCP 0A
       selector:
         text:
-    
+
 write_register:
   name: Write Register
-  description: Write a register value to a modbus device.
+  description: Write register is not implemented for this device profile.
   fields:
     address:
       name: Address
@@ -49,7 +49,7 @@ write_register:
           mode: box
     slave:
       name: Slave
-      description: Slave address (required).
+      description: Slave unit ID (required).
       required: true
       example: 10
       selector:
@@ -58,7 +58,7 @@ write_register:
           mode: box
     value:
       name: Value
-      description: Value to write (required, an integer or list of integers).
+      description: Value to write (integer or list of integers).
       required: true
       example: 1
       selector:
@@ -67,7 +67,7 @@ write_register:
           mode: box
     hub:
       name: Hub
-      description: Hub name (optional, defaults to "symi_modbus").
-      example: symi_modbus
+      description: Integration entry title (same as hub name).
+      example: Modbus TCP 0A
       selector:
-        text: 
+        text:

@@ -26,6 +26,8 @@ CONF_RETRY_ON_EMPTY: Final = "retry_on_empty"
 CONF_RTUOVERTCP: Final = "rtuovertcp"
 CONF_SERIAL: Final = "serial"
 CONF_STOPBITS: Final = "stopbits"
+# Config flow: user picks this value to enter a serial device path manually.
+SERIAL_PORT_MANUAL_VALUE: Final = "__symi_modbus_manual_serial_path__"
 CONF_TCP: Final = "tcp"
 CONF_UDP: Final = "udp"
 CONF_WRITE_TYPE: Final = "write_type"

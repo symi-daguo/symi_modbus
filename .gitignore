@@ -24,10 +24,3 @@ ENV/
 
 # Temp files
 *.tmp
-
-# Old project files that are being merged
-modbus1/
-modbus_switch/
-symi_modbus_configuration.yaml
-开发需求.md
-亖米logo白.png 

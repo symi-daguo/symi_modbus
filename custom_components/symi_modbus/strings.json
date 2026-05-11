@@ -15,10 +15,23 @@
           "port": "Port"
         }
       },
-      "serial": {
-        "title": "Configure Serial connection",
+      "serial_pick": {
+        "title": "Select serial port",
+        "description": "Ports are detected on the system running Home Assistant. Choose a device or manual entry.",
         "data": {
-          "port": "Port",
+          "port": "Serial device"
+        }
+      },
+      "serial_manual": {
+        "title": "Serial device path",
+        "description": "Enter the device path visible to Home Assistant (e.g. /dev/ttyUSB0).",
+        "data": {
+          "port": "Device path"
+        }
+      },
+      "serial_params": {
+        "title": "Serial port settings",
+        "data": {
           "baudrate": "Baudrate",
           "bytesize": "Bytesize",
           "parity": "Parity",
@@ -27,26 +40,18 @@
         }
       },
       "slave": {
-        "title": "Add Modbus slave device",
-        "description": "Current slaves: {current_slaves} (Total: {slave_count}/10)",
+        "title": "Modbus slave address",
+        "description": "Unit ID of the device on this connection (default 10 = 0x0A). To add another slave on the same TCP link or serial port, add this integration again.",
         "data": {
-          "slave": "Slave address (default: 0x0A/10)"
-        }
-      },
-      "add_another": {
-        "title": "Add another slave",
-        "description": "Added slave: 0x{slave}\nDo you want to add another slave?",
-        "data": {
-          "add_another": "Add another slave"
+          "slave": "Slave address (decimal, e.g. 10 for 0x0A)"
         }
       }
     },
     "error": {
-      "invalid_host": "Invalid hostname or IP address",
+      "invalid_host": "Enter a valid host name or IP address",
       "cannot_connect": "Failed to connect, please check your configuration",
       "already_configured": "This slave device is already configured",
-      "slave_already_added": "This slave address has already been added",
-      "too_many_slaves": "Maximum number of slaves (10) reached"
+      "invalid_serial_path": "Enter a non-empty serial device path"
     },
     "abort": {
       "already_configured": "This slave device is already configured"
@@ -62,4 +67,4 @@
       }
     }
   }
-} 
+}
