@@ -284,6 +284,24 @@ def _linkage_schema(hass, entry_id: str) -> vol.Schema:
     )
 
 
+async def _check_serial_port(
+    hass, port: str, exclude: set[tuple[str, str]] | None = None
+) -> str | None:
+    """Return the error of a serial port that cannot be used.
+
+    A serial port that another program holds open splits the bytes between
+    the programs, so the connection would only work by luck.
+    """
+    if not port:
+        return "serial_port_required"
+    holders = await hass.async_add_executor_job(
+        serial_port_holders, port, exclude or set()
+    )
+    if holders > 0:
+        return "serial_port_busy"
+    return None
+
+
 def _friendly_name(hass, entity_id: str) -> str:
     """Return the name of an entity as it is shown in the interface."""
     state = hass.states.get(entity_id)
@@ -425,13 +443,26 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_serial_pick(self, user_input: dict | None = None) -> config_entries.ConfigFlowResult:
         """Pick a detected serial device or choose manual path entry."""
+        schema = await self._async_serial_pick_schema()
         if user_input is not None:
             choice = user_input[CONF_PORT]
             if choice == SERIAL_PORT_MANUAL_VALUE:
                 return await self.async_step_serial_manual()
+            error = await _check_serial_port(self.hass, choice)
+            if error:
+                return self.async_show_form(
+                    step_id="serial_pick", data_schema=schema, errors={"port": error}
+                )
             self._connection_data = {CONF_PORT: choice}
             return await self.async_step_serial_params()
 
+        return self.async_show_form(
+            step_id="serial_pick",
+            data_schema=schema,
+        )
+
+    async def _async_serial_pick_schema(self) -> vol.Schema:
+        """Build the form that offers the detected serial ports."""
         ports = await self.hass.async_add_executor_job(_list_serial_ports)
         # A serial port that is already used by another connection would
         # split the bytes between them, so it is not offered.
@@ -445,15 +476,10 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             SERIAL_PORT_MANUAL_VALUE,
         )
 
-        schema = vol.Schema(
+        return vol.Schema(
             {
                 vol.Required(CONF_PORT, default=default_port): vol.In(options),
             }
-        )
-
-        return self.async_show_form(
-            step_id="serial_pick",
-            data_schema=schema,
         )
 
     async def async_step_serial_manual(self, user_input: dict | None = None) -> config_entries.ConfigFlowResult:
@@ -465,8 +491,12 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if not path:
                 errors[CONF_PORT] = "invalid_serial_path"
             else:
-                self._connection_data = {CONF_PORT: path}
-                return await self.async_step_serial_params()
+                error = await _check_serial_port(self.hass, path)
+                if error:
+                    errors[CONF_PORT] = error
+                else:
+                    self._connection_data = {CONF_PORT: path}
+                    return await self.async_step_serial_params()
 
         return self.async_show_form(
             step_id="serial_manual",
@@ -709,6 +739,13 @@ class PanelSubentryFlow(ConfigSubentryFlow):
     async def async_step_user(self, user_input: dict | None = None) -> SubentryFlowResult:
         """Add a panel bus."""
         if user_input is not None:
+            error = await self._async_check_port(user_input.get(CONF_PORT))
+            if error:
+                return self.async_show_form(
+                    step_id="user",
+                    data_schema=await self._async_schema({}),
+                    errors={"port": error},
+                )
             data = self._build_data(user_input)
             return self.async_create_entry(title=self._build_title(data), data=data)
 
@@ -722,6 +759,14 @@ class PanelSubentryFlow(ConfigSubentryFlow):
         subentry = self._get_reconfigure_subentry()
 
         if user_input is not None:
+            error = await self._async_check_port(user_input.get(CONF_PORT))
+            if error:
+                suggested = self._suggested_values(subentry)
+                return self.async_show_form(
+                    step_id="reconfigure",
+                    data_schema=await self._async_schema(suggested),
+                    errors={"port": error},
+                )
             data = self._build_data(user_input)
             update = {"data": data}
             title = self._panel_title(subentry, data)
@@ -729,17 +774,36 @@ class PanelSubentryFlow(ConfigSubentryFlow):
                 update["title"] = title
             return self.async_update_and_abort(entry, subentry, **update)
 
-        suggested = dict(subentry.data)
-        panel_ids = suggested.get(CONF_PANEL_IDS) or [1]
-        suggested["panel_start"] = min(panel_ids)
-        suggested["panel_count"] = len(panel_ids)
-        suggested.pop(CONF_PANEL_IDS, None)
-
+        suggested = self._suggested_values(subentry)
         self._own_subentry_id = subentry.subentry_id
 
         return self.async_show_form(
             step_id="reconfigure", data_schema=await self._async_schema(suggested)
         )
+
+    async def _async_check_port(self, port: str | None) -> str | None:
+        """Return the error of a serial port that cannot be used."""
+        path = str(port or "").strip()
+        if not path:
+            return "serial_port_required"
+        if path in _ports_in_use(self.hass, self._own_subentry_id):
+            return "serial_port_in_use"
+
+        # The bus of this integration holds the port itself, that one is fine.
+        entry = self._get_entry()
+        runtime = getattr(entry, "runtime_data", None)
+        exclude = runtime.panels.own_handles() if runtime is not None else set()
+        return await _check_serial_port(self.hass, path, exclude)
+
+    @staticmethod
+    def _suggested_values(subentry) -> dict:
+        """Return the form values of a panel bus."""
+        suggested = dict(subentry.data)
+        panel_ids = suggested.get(CONF_PANEL_IDS) or [1]
+        suggested["panel_start"] = min(panel_ids)
+        suggested["panel_count"] = len(panel_ids)
+        suggested.pop(CONF_PANEL_IDS, None)
+        return suggested
 
     async def _async_schema(self, suggested: dict) -> vol.Schema:
         """Build the form with the serial ports that are detected."""

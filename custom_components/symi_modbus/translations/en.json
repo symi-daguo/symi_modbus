@@ -57,7 +57,8 @@
       "invalid_host": "Enter a valid host name or IP address",
       "invalid_serial_path": "Enter a valid serial device path",
       "no_slaves": "Add at least one slave address",
-      "cannot_connect": "Cannot connect, check the serial settings or the slave address"
+      "cannot_connect": "Cannot connect, check the serial settings or the slave address",
+      "serial_port_busy": "Another program holds this serial port, the bytes would be split between them. Please pick another port."
     },
     "abort": {
       "already_configured": "This connection is already configured"
@@ -134,7 +135,10 @@
         }
       },
       "error": {
-        "invalid_panel_path": "Enter a valid serial device path"
+        "invalid_panel_path": "Enter a valid serial device path",
+        "serial_port_busy": "Another program holds this serial port, the bytes would be split between them. Please pick another port.",
+        "serial_port_in_use": "This serial port is already used by another connection of this integration. Please pick another port.",
+        "serial_port_required": "Please fill in the path of the serial port."
       }
     },
     "linkage": {

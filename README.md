@@ -15,7 +15,7 @@ that belongs to it is a **subentry** that can be added, changed and removed on i
 
 | Item | Value |
 |------|--------|
-| Version | **2.2.3** |
+| Version | **2.2.4** |
 | Home Assistant | **2025.3.0** or newer (developed against 2026.10.2, verified on 2026.7.4) |
 | Python dependency | `pyserial`, `pyserial-asyncio-fast` (declared in `manifest.json`) |
 
@@ -108,7 +108,8 @@ touches the entry it was made on, the other slaves, panel buses and links keep t
 The serial port of a panel bus is picked from the devices that are detected on the system, a path
 that is not listed can be entered in the same field. A port that this integration already uses is
 not offered, because two connections on one port would split the bytes between them. A port that
-**another program** holds is marked, because that splits the bytes as well.
+**another program** holds is marked, because that splits the bytes as well, and it cannot be
+saved: the configuration refuses it and says why.
 
 The devices show up as `Serial /dev/ttyUSB0`, and their entities carry the slave address, for
 example `0A Line 01`, so a device can be told apart by its link and by its slave address. Every
@@ -233,6 +234,14 @@ docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
   panel side with a burst of four hundred button presses.
 
 ## Changelog
+
+### 2.2.4
+
+- A serial port that **another program holds open** cannot be used any more. The configuration
+  refuses to save such a port and says why, instead of letting the connection split the bytes
+  with the other program.
+- When a panel bus finds out that its port is held by another program, it says so in the log and
+  the entities of the panels turn `unavailable`, because the states cannot be trusted.
 
 ### 2.2.3
 

@@ -37,13 +37,17 @@ ECHO_WINDOW = 0.15
 MAX_QUEUE = 500
 
 
-def serial_port_holders(port: str) -> int:
+def serial_port_holders(
+    port: str, exclude: set[tuple[str, str]] | None = None
+) -> int:
     """Return how many programs hold the serial port open.
 
     A serial port can be opened by more than one program, the bytes are then
-    split between them and nobody receives all of them.
+    split between them and nobody receives all of them. The handles in
+    ``exclude`` are not counted, they belong to the caller itself.
     """
     target = str(port)
+    exclude = exclude or set()
     count = 0
     for pid in os.listdir("/proc"):
         if not pid.isdigit():
@@ -55,11 +59,14 @@ def serial_port_holders(port: str) -> int:
             continue
         for handle in handles:
             try:
-                if os.readlink(f"{fd_dir}/{handle}") == target:
-                    count += 1
-                    break
+                if os.readlink(f"{fd_dir}/{handle}") != target:
+                    continue
             except OSError:
                 continue
+            if (pid, handle) in exclude:
+                continue
+            count += 1
+            break
     return count
 
 
@@ -156,18 +163,33 @@ class PanelConnection:
         _LOGGER.debug("Panel bus %s opened", self._port)
         # Reading the open files of the other programs is a blocking call, so
         # it belongs in the executor.
+        own = self.own_handle()
         holders = await self._hass.async_add_executor_job(
-            serial_port_holders, str(self._port)
+            serial_port_holders, str(self._port), own
         )
-        if holders > 1:
-            _LOGGER.warning(
-                "The serial port %s is open by %s programs, the bytes may be split"
-                " between them",
+        if holders > 0:
+            _LOGGER.error(
+                "The serial port %s is also open by %s other programs, the bytes"
+                " are split between them and the panels cannot be read reliably",
                 self._port,
                 holders,
             )
+            if self._on_state is not None:
+                self._on_state(False)
+            return
         if self._on_state is not None:
             self._on_state(True)
+
+    def own_handle(self) -> set[tuple[str, str]]:
+        """Return the handle of this connection, so it can be left out."""
+        if self._writer is None:
+            return set()
+        transport = self._writer.transport
+        serial_port = transport.get_extra_info("serial")
+        fileno = getattr(serial_port, "fileno", lambda: None)()
+        if fileno is None:
+            return set()
+        return {(str(os.getpid()), str(fileno))}
 
     async def _async_read_loop(self) -> None:
         """Read the bus and report the button events."""

@@ -126,6 +126,17 @@ class PanelManager:
         """Return the addresses of the panels on a bus."""
         return self._panel_ids.get(subentry_id, [])
 
+    def own_handles(self) -> set[tuple[str, str]]:
+        """Return the handles of the open panel buses.
+
+        They belong to this integration, so they are left out when another
+        program is looked for on the same serial port.
+        """
+        handles: set[tuple[str, str]] = set()
+        for connection in self._buses.values():
+            handles |= connection.own_handle()
+        return handles
+
     def is_connected(self, subentry_id: str) -> bool:
         """Return whether the bus of a panel subentry is open."""
         connection = self._buses.get(subentry_id)
