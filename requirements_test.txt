@@ -1,0 +1,4 @@
+homeassistant==2026.10.2
+pyserial>=3.5
+pytest
+pytest-asyncio
