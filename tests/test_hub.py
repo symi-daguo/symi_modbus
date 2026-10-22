@@ -12,7 +12,6 @@ from custom_components.symi_modbus.const import (
     CONF_HOST,
     CONF_NAME,
     CONF_SCAN_INTERVAL,
-    CONF_SERIAL,
     CONF_SLAVES,
     CONF_TCP,
     CONF_PORT,
@@ -27,7 +26,6 @@ from custom_components.symi_modbus.frames import (
     FUNCTION_WRITE_SINGLE_COIL,
     build_read_request,
     crc16_fn,
-    decode_response,
     expected_request_length,
 )
 from custom_components.symi_modbus.modbus import ModbusHub

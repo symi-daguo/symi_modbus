@@ -40,9 +40,6 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-MAX_SLAVES = 32
-MAX_COIL_COUNT = 64
-
 CONNECTION_TYPE_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_TYPE, default=CONF_TCP): vol.In(
@@ -73,14 +70,6 @@ SERIAL_PARAMS_SCHEMA = vol.Schema(
 SERIAL_MANUAL_PATH_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_PORT): cv.string,
-    }
-)
-
-COIL_SCHEMA = vol.Schema(
-    {
-        vol.Optional(CONF_COIL_COUNT, default=DEFAULT_COIL_COUNT): vol.All(
-            vol.Coerce(int), vol.Range(min=1, max=MAX_COIL_COUNT)
-        ),
     }
 )
 
@@ -295,7 +284,7 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if not self._slaves:
             return self.async_show_form(
                 step_id="slave",
-                data_schema=SLAVE_SCHEMA,
+                data_schema=self._slave_schema(),
                 errors={"base": "no_slaves"},
             )
 

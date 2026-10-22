@@ -1,7 +1,7 @@
 """Modbus frame encoding and decoding (MBAP / RTU)."""
 from __future__ import annotations
 
-from .const import FRAME_MBAP, FRAME_RTU
+from .const import FRAME_MBAP
 
 FUNCTION_READ_COILS: int = 0x01
 FUNCTION_READ_DISCRETE_INPUTS: int = 0x02

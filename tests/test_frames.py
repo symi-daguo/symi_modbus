@@ -6,7 +6,6 @@ import pytest
 from custom_components.symi_modbus.const import FRAME_MBAP, FRAME_RTU
 from custom_components.symi_modbus.frames import (
     FUNCTION_READ_COILS,
-    FUNCTION_WRITE_MULTIPLE_COILS,
     FUNCTION_WRITE_SINGLE_COIL,
     build_read_request,
     build_write_coil_request,

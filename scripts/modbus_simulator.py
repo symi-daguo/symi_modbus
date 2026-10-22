@@ -11,10 +11,7 @@ import argparse
 import asyncio
 import os
 import pty
-import struct
-import sys
 import termios
-from typing import Optional
 
 SLAVE_ID = 0x0A
 COIL_COUNT = 16
