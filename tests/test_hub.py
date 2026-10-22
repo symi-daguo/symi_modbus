@@ -291,6 +291,42 @@ async def test_hub_reconnects_after_the_link_drops(monkeypatch: pytest.MonkeyPat
 
 
 @pytest.mark.asyncio
+async def test_a_slave_that_answered_before_is_still_available() -> None:
+    """A slave that answered before an entity was added is still available.
+
+    The availability is only reported on a change, so an entity that joins
+    after the first poll has to read the current state.
+    """
+    device = FakeDevice({10: 4})
+    server = await _start_server(device)
+    port = server.sockets[0].getsockname()[1]
+
+    entry = FakeConfigEntry(
+        {
+            CONF_TYPE: CONF_TCP,
+            CONF_NAME: "test",
+            CONF_SCAN_INTERVAL: DEFAULT_SCAN_INTERVAL,
+            CONF_COIL_COUNT: 4,
+            CONF_SLAVES: {"10": {"start": 0, "count": 4}},
+            CONF_HOST: "127.0.0.1",
+            CONF_PORT: port,
+            CONF_FRAME: FRAME_RTU,
+        }
+    )
+    hub = ModbusHub(FakeHass(), entry)
+    await hub.async_setup()
+    hub.register_slaves(entry.data[CONF_SLAVES])
+
+    try:
+        # The slave answers before anyone listens.
+        await hub.async_poll_slaves()
+        assert hub.is_slave_available(10)
+    finally:
+        await hub.async_stop()
+        server.close()
+
+
+@pytest.mark.asyncio
 async def test_the_slaves_share_the_scan_interval() -> None:
     """The scan interval is the period of one round over all slaves.
 

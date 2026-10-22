@@ -155,6 +155,14 @@ class ModbusHub:
         """Return the last known state of a coil, or None when unknown."""
         return self._slave_data.get(slave, {}).get(address)
 
+    def is_slave_available(self, slave: int) -> bool:
+        """Return whether the slave answered the last poll.
+
+        An entity that is added after the first poll reads the state here, so
+        it does not wait for the next availability change.
+        """
+        return self._slave_available.get(slave, False)
+
     def add_callback(self, callback_func: StateCallback) -> None:
         """Register a state callback function."""
         self._callbacks.append(callback_func)

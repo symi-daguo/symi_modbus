@@ -149,3 +149,7 @@ class ModbusSwitch(SwitchEntity):
         state = self._hub.get_state(self._slave, self._address)
         if state is not None:
             self._is_on = state
+        # The slave may have answered before this entity was added, so the
+        # current availability is read instead of waiting for a change.
+        if self._hub.is_slave_available(self._slave):
+            self._attr_available = True
