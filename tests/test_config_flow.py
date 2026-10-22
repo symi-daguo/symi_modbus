@@ -57,6 +57,13 @@ def test_the_port_picker_leaves_out_the_ports_in_use() -> None:
     assert SERIAL_PORT_MANUAL_VALUE in options
 
 
+def test_a_port_that_nothing_holds_has_no_holder(tmp_path) -> None:
+    """A serial port that no program holds is free."""
+    from custom_components.symi_modbus.panels.connection import serial_port_holders
+
+    assert serial_port_holders(str(tmp_path / "ttyNothing")) == 0
+
+
 def test_a_renamed_slave_keeps_its_title() -> None:
     """A slave that was renamed keeps its name when it is changed."""
     renamed = FakeSubentry("客厅灯")
@@ -68,10 +75,10 @@ def test_a_renamed_slave_keeps_its_title() -> None:
 
 def test_a_renamed_panel_bus_keeps_its_title() -> None:
     """A panel bus that was renamed keeps its name when it is changed."""
-    renamed = FakeSubentry("二楼面板")
+    renamed = FakeSubentry("二楼面板", {"brand": "symi", "port": "/dev/ttyS0"})
     assert PanelSubentryFlow._panel_title(renamed, {CONF_BRAND: "symi"}) is None
 
-    default = FakeSubentry("SYMI /dev/ttyS0")
+    default = FakeSubentry("SYMI /dev/ttyS0", {"brand": "symi", "port": "/dev/ttyS0"})
     data = {CONF_BRAND: "symi", CONF_PORT: "/dev/ttyS1"}
     assert PanelSubentryFlow._panel_title(default, data) == "SYMI /dev/ttyS1"
 

@@ -106,8 +106,9 @@ Every entry that is already there can be **changed** or **removed** on the same 
 touches the entry it was made on, the other slaves, panel buses and links keep their settings.
 
 The serial port of a panel bus is picked from the devices that are detected on the system, a path
-that is not listed can be entered by hand. A port that this integration already uses is not
-offered, because two connections on one port would split the bytes between them.
+that is not listed can be entered in the same field. A port that this integration already uses is
+not offered, because two connections on one port would split the bytes between them. A port that
+**another program** holds is marked, because that splits the bytes as well.
 
 The devices show up as `Serial /dev/ttyUSB0`, and their entities carry the slave address, for
 example `0A Line 01`, so a device can be told apart by its link and by its slave address. Every
@@ -232,6 +233,19 @@ docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
   panel side with a burst of four hundred button presses.
 
 ## Changelog
+
+### 2.2.2
+
+- The **serial port of a panel bus** is a field that can be picked from the detected devices and
+  that also takes a path that was entered by hand. The first port that is free comes filled in.
+- The **data bits and the stop bits** are number fields with their default filled in, so the
+  value is always visible.
+- The **pickers of a link** show only the entities they belong to: the buttons of the wall
+  panels on one side, the coils of the Modbus slaves on the other, each in the order of their
+  panels and their lines.
+- A serial port that **another program holds open** is marked in the picker, because the bytes
+  on such a port are split between the programs. The integration warns about it in the log as
+  well.
 
 ### 2.2.1
 

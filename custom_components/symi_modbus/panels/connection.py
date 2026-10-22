@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections import deque
 from collections.abc import Callable
 from time import monotonic
@@ -32,6 +33,32 @@ ECHO_WINDOW = 0.15
 # Upper bound of the send queue. A burst of indicator updates must not let
 # the queue grow without limit.
 MAX_QUEUE = 500
+
+
+def serial_port_holders(port: str) -> int:
+    """Return how many programs hold the serial port open.
+
+    A serial port can be opened by more than one program, the bytes are then
+    split between them and nobody receives all of them.
+    """
+    target = str(port)
+    count = 0
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        fd_dir = f"/proc/{pid}/fd"
+        try:
+            handles = os.listdir(fd_dir)
+        except OSError:
+            continue
+        for handle in handles:
+            try:
+                if os.readlink(f"{fd_dir}/{handle}") == target:
+                    count += 1
+                    break
+            except OSError:
+                continue
+    return count
 
 
 class PanelConnection:
@@ -123,6 +150,14 @@ class PanelConnection:
             CONNECT_TIMEOUT,
         )
         _LOGGER.debug("Panel bus %s opened", self._port)
+        holders = serial_port_holders(str(self._port))
+        if holders > 1:
+            _LOGGER.warning(
+                "The serial port %s is open by %s programs, the bytes may be split"
+                " between them",
+                self._port,
+                holders,
+            )
         if self._on_state is not None:
             self._on_state(True)
 

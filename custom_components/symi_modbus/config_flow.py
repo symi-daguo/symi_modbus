@@ -68,6 +68,7 @@ from .const import (
 )
 from .connection import ModbusConnection
 from .frames import FUNCTION_READ_COILS, build_read_request
+from .panels.connection import serial_port_holders
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -140,10 +141,25 @@ PANEL_FIELDS = {
             mode=SelectSelectorMode.DROPDOWN,
         )
     ),
-    vol.Optional(CONF_BAUDRATE, default=9600): cv.positive_int,
-    vol.Optional(CONF_BYTESIZE, default=8): vol.In([5, 6, 7, 8]),
-    vol.Optional(CONF_PARITY, default="N"): vol.In(["E", "O", "N", "None"]),
-    vol.Optional(CONF_STOPBITS, default=1): vol.In([1, 2]),
+    vol.Optional(CONF_BAUDRATE, default=9600): NumberSelector(
+        NumberSelectorConfig(min=300, max=1000000, mode=NumberSelectorMode.BOX)
+    ),
+    vol.Optional(CONF_BYTESIZE, default=8): NumberSelector(
+        NumberSelectorConfig(min=5, max=8, step=1, mode=NumberSelectorMode.BOX)
+    ),
+    vol.Optional(CONF_PARITY, default="N"): SelectSelector(
+        SelectSelectorConfig(
+            options=[
+                {"value": "N", "label": "None"},
+                {"value": "E", "label": "Even"},
+                {"value": "O", "label": "Odd"},
+            ],
+            mode=SelectSelectorMode.DROPDOWN,
+        )
+    ),
+    vol.Optional(CONF_STOPBITS, default=1): NumberSelector(
+        NumberSelectorConfig(min=1, max=2, step=1, mode=NumberSelectorMode.BOX)
+    ),
     vol.Required("panel_start", default=1): NumberSelector(
         NumberSelectorConfig(min=1, max=247, mode=NumberSelectorMode.BOX)
     ),
@@ -154,24 +170,6 @@ PANEL_FIELDS = {
         NumberSelectorConfig(min=1, max=MAX_PANEL_BUTTONS, mode=NumberSelectorMode.BOX)
     ),
 }
-
-LINKAGE_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_PANEL_ENTITIES, default=list): EntitySelector(
-            EntitySelectorConfig(
-                multiple=True,
-                filter={"domain": "switch", "integration": DOMAIN},
-            )
-        ),
-        vol.Required(CONF_RELAY_ENTITIES, default=list): EntitySelector(
-            EntitySelectorConfig(
-                multiple=True,
-                filter={"domain": "switch", "integration": DOMAIN},
-            )
-        ),
-    }
-)
-
 
 def _list_serial_ports() -> list[ListPortInfo]:
     """Enumerate serial ports on the machine running Home Assistant."""
@@ -226,10 +224,64 @@ def _entity_kind(hass, entity_id: str, entry_id: str) -> str | None:
         return None
     if registry_entry.config_entry_id != entry_id:
         return None
-    unique_id = registry_entry.unique_id or ""
+    return _kind_of_unique_id(registry_entry.unique_id)
+
+
+def _entities_of_kind(hass, entry_id: str, kind: str) -> list[str]:
+    """Return the entities of an entry that are of one kind.
+
+    The kind is told by the unique id: a panel button carries a panel id, a
+    Modbus coil does not. The list is sorted, so the entities show up in the
+    order of their panels and their lines.
+    """
+    registry = er.async_get(hass)
+    entities = [
+        registry_entry.entity_id
+        for registry_entry in registry.entities.values()
+        if registry_entry.config_entry_id == entry_id
+        and _kind_of_unique_id(registry_entry.unique_id) == kind
+    ]
+    return sorted(entities)
+
+
+def _kind_of_unique_id(unique_id: str | None) -> str | None:
+    """Return whether a unique id belongs to a panel button or a Modbus coil."""
+    if not unique_id:
+        return None
     if "_panel_" in unique_id:
         return "panel"
     return "coil"
+
+
+def _linkage_schema(hass, entry_id: str) -> vol.Schema:
+    """Build the form of a link.
+
+    The two pickers only show the entities they belong to: the buttons of the
+    wall panels on one side, the coils of the Modbus slaves on the other.
+    """
+    panels = _entities_of_kind(hass, entry_id, "panel")
+    relays = _entities_of_kind(hass, entry_id, "coil")
+
+    def _picker(entities: list[str]) -> EntitySelector:
+        """Return a picker for the given entities."""
+        if entities:
+            return EntitySelector(
+                EntitySelectorConfig(multiple=True, include_entities=entities)
+            )
+        # There is nothing to pick yet, the picker stays open but the help
+        # text of the step says what to do first.
+        return EntitySelector(
+            EntitySelectorConfig(
+                multiple=True, filter={"domain": "switch", "integration": DOMAIN}
+            )
+        )
+
+    return vol.Schema(
+        {
+            vol.Required(CONF_PANEL_ENTITIES, default=list): _picker(panels),
+            vol.Required(CONF_RELAY_ENTITIES, default=list): _picker(relays),
+        }
+    )
 
 
 def _friendly_name(hass, entity_id: str) -> str:
@@ -269,17 +321,38 @@ def _ports_in_use(hass, skip_subentry_id: str | None = None) -> set[str]:
     return used
 
 
-def _serial_port_options(ports: list[ListPortInfo], used: set[str]) -> dict[str, str]:
-    """Return the selectable serial ports without the ones already in use."""
+def _serial_port_options(
+    ports: list[ListPortInfo],
+    used: set[str],
+    busy: set[str] | None = None,
+) -> dict[str, str]:
+    """Return the selectable serial ports without the ones already in use.
+
+    A port that another program holds is marked, because the bytes on such a
+    port are split between the programs.
+    """
+    busy = busy or set()
     options: dict[str, str] = {}
     for info in sorted(ports, key=lambda port: port.device):
         if info.device in used:
             continue
-        options[info.device] = _format_serial_port_label(info)
+        label = _format_serial_port_label(info)
+        if info.device in busy:
+            label += " - 已被其他程序占用 (held by another program)"
+        options[info.device] = label
     options[SERIAL_PORT_MANUAL_VALUE] = (
         "未列出 - 手动输入路径 (Not listed - enter the path manually)"
     )
     return options
+
+
+def _busy_serial_ports(ports: list[ListPortInfo], used: set[str]) -> set[str]:
+    """Return the ports that another program holds open."""
+    return {
+        info.device
+        for info in ports
+        if info.device not in used and serial_port_holders(info.device) > 0
+    }
 
 
 class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -362,7 +435,8 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         ports = await self.hass.async_add_executor_job(_list_serial_ports)
         # A serial port that is already used by another connection would
         # split the bytes between them, so it is not offered.
-        options = _serial_port_options(ports, _ports_in_use(self.hass))
+        used = _ports_in_use(self.hass)
+        options = _serial_port_options(ports, used, _busy_serial_ports(ports, used))
         default_port: str | None = next(
             (device for device in options if device != SERIAL_PORT_MANUAL_VALUE),
             SERIAL_PORT_MANUAL_VALUE,
@@ -627,39 +701,16 @@ class PanelSubentryFlow(ConfigSubentryFlow):
 
     def __init__(self) -> None:
         """Initialize the flow."""
-        self._suggested: dict = {}
         self._own_subentry_id: str | None = None
 
     async def async_step_user(self, user_input: dict | None = None) -> SubentryFlowResult:
         """Add a panel bus."""
         if user_input is not None:
-            if user_input.get(CONF_PORT) == SERIAL_PORT_MANUAL_VALUE:
-                self._suggested = {
-                    key: value for key, value in user_input.items() if key != CONF_PORT
-                }
-                return await self.async_step_port_manual()
             data = self._build_data(user_input)
             return self.async_create_entry(title=self._build_title(data), data=data)
 
         return self.async_show_form(
-            step_id="user", data_schema=await self._async_schema(self._suggested)
-        )
-
-    async def async_step_port_manual(self, user_input: dict | None = None) -> SubentryFlowResult:
-        """Enter the path of a serial port that is not listed."""
-        if user_input is not None:
-            path = (user_input.get(CONF_PORT) or "").strip()
-            if not path:
-                return self.async_show_form(
-                    step_id="port_manual",
-                    data_schema=SERIAL_MANUAL_PATH_SCHEMA,
-                    errors={"base": "invalid_serial_path"},
-                )
-            self._suggested = {**self._suggested, CONF_PORT: path}
-            return await self.async_step_user(self._suggested)
-
-        return self.async_show_form(
-            step_id="port_manual", data_schema=SERIAL_MANUAL_PATH_SCHEMA
+            step_id="user", data_schema=await self._async_schema({})
         )
 
     async def async_step_reconfigure(self, user_input: dict | None = None) -> SubentryFlowResult:
@@ -668,11 +719,6 @@ class PanelSubentryFlow(ConfigSubentryFlow):
         subentry = self._get_reconfigure_subentry()
 
         if user_input is not None:
-            if user_input.get(CONF_PORT) == SERIAL_PORT_MANUAL_VALUE:
-                self._suggested = {
-                    key: value for key, value in user_input.items() if key != CONF_PORT
-                }
-                return await self.async_step_port_manual()
             data = self._build_data(user_input)
             update = {"data": data}
             title = self._panel_title(subentry, data)
@@ -686,7 +732,6 @@ class PanelSubentryFlow(ConfigSubentryFlow):
         suggested["panel_count"] = len(panel_ids)
         suggested.pop(CONF_PANEL_IDS, None)
 
-        self._suggested = suggested
         self._own_subentry_id = subentry.subentry_id
 
         return self.async_show_form(
@@ -697,7 +742,9 @@ class PanelSubentryFlow(ConfigSubentryFlow):
         """Build the form with the serial ports that are detected."""
         ports = await self.hass.async_add_executor_job(_list_serial_ports)
         used = _ports_in_use(self.hass, self._own_subentry_id)
-        options = _serial_port_options(ports, used)
+        options = _serial_port_options(
+            ports, used, _busy_serial_ports(ports, used)
+        )
 
         current = suggested.get(CONF_PORT)
         if current and current not in options:
@@ -712,12 +759,24 @@ class PanelSubentryFlow(ConfigSubentryFlow):
                     for device in options
                     if device != SERIAL_PORT_MANUAL_VALUE
                 ),
-                SERIAL_PORT_MANUAL_VALUE,
+                "",
             )
 
         schema = vol.Schema(
             {
-                vol.Required(CONF_PORT, default=default): vol.In(options),
+                # The picker takes a port that was detected and a path that was
+                # entered by hand, both in the same field.
+                vol.Required(CONF_PORT, default=default): SelectSelector(
+                    SelectSelectorConfig(
+                        options=[
+                            {"value": device, "label": label}
+                            for device, label in options.items()
+                            if device != SERIAL_PORT_MANUAL_VALUE
+                        ],
+                        mode=SelectSelectorMode.DROPDOWN,
+                        custom_value=True,
+                    )
+                ),
                 **PANEL_FIELDS,
             }
         )
@@ -744,10 +803,9 @@ class PanelSubentryFlow(ConfigSubentryFlow):
     @staticmethod
     def _panel_title(subentry, data: dict) -> str | None:
         """Return the new title, unless the user has renamed the panel bus."""
-        default = PanelSubentryFlow._build_title(data)
-        if subentry.title.startswith(default.split(" ")[0].upper()):
+        if subentry.title == PanelSubentryFlow._build_title(subentry.data):
             # The title still carries the default, it may follow the port.
-            return default
+            return PanelSubentryFlow._build_title(data)
         return None
 
 
@@ -770,7 +828,7 @@ class LinkageSubentryFlow(ConfigSubentryFlow):
 
         return self.async_show_form(
             step_id="user",
-            data_schema=LINKAGE_SCHEMA,
+            data_schema=_linkage_schema(self.hass, self._get_entry().entry_id),
             errors=errors,
         )
 
@@ -797,7 +855,7 @@ class LinkageSubentryFlow(ConfigSubentryFlow):
         return self.async_show_form(
             step_id="reconfigure",
             data_schema=self.add_suggested_values_to_schema(
-                LINKAGE_SCHEMA, subentry.data
+                _linkage_schema(self.hass, entry.entry_id), subentry.data
             ),
             errors=errors,
         )

@@ -104,7 +104,7 @@
       "step": {
         "user": {
           "title": "添加面板总线",
-          "description": "面板所在的串口以及面板品牌。品牌决定用哪套协议读取按键和驱动指示灯。串口从检测到的设备里选择，也可以手动输入路径。",
+          "description": "面板所在的串口以及面板品牌。品牌决定用哪套协议读取按键和驱动指示灯。串口可以直接从下拉里选，也可以自己输入路径，已被本集成占用的串口不会出现在列表里。",
           "data": {
             "brand": "面板品牌",
             "port": "串口设备",
@@ -129,19 +129,12 @@
             "panel_start": "起始面板地址",
             "panel_count": "面板数量",
             "buttons": "每面板按键数"
-          }
-        },
-        "port_manual": {
-          "title": "手动输入串口路径",
-          "description": "填写在 Home Assistant 进程内可见的完整路径，例如 /dev/ttyUSB0、/dev/ttyS0 或 COM3。",
-          "data": {
-            "port": "串口设备"
-          }
+          },
+          "description": "面板所在的串口以及面板品牌。品牌决定用哪套协议读取按键和驱动指示灯。串口可以直接从下拉里选，也可以自己输入路径，已被本集成占用的串口不会出现在列表里。"
         }
       },
       "error": {
-        "invalid_panel_path": "请输入有效的串口设备路径",
-        "invalid_serial_path": "请输入有效的串口设备路径"
+        "invalid_panel_path": "请输入有效的串口设备路径"
       }
     },
     "linkage": {
@@ -153,7 +146,7 @@
       "step": {
         "user": {
           "title": "把面板按键与继电器关联",
-          "description": "选择面板上的按键和 Modbus 从站的继电器。状态双向同步：按键控制继电器，继电器状态回写到按键指示灯。",
+          "description": "选择面板上的按键和 Modbus 从站的继电器。状态双向同步：按键控制继电器，继电器状态回写到按键指示灯。上面的选择器只列面板按键，下面的只列继电器。",
           "data": {
             "panel_entities": "面板按键",
             "relay_entities": "Modbus 继电器"
@@ -164,7 +157,8 @@
           "data": {
             "panel_entities": "面板按键",
             "relay_entities": "Modbus 继电器"
-          }
+          },
+          "description": "选择面板上的按键和 Modbus 从站的继电器。状态双向同步：按键控制继电器，继电器状态回写到按键指示灯。上面的选择器只列面板按键，下面的只列继电器。"
         }
       },
       "error": {

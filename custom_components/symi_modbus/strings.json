@@ -104,7 +104,7 @@
       "step": {
         "user": {
           "title": "Add a wall panel bus",
-          "description": "The serial line the panels are connected to, together with their brand. The brand decides which protocol is used to read the buttons and to drive the indicator lights. Pick the port from the detected devices or enter its path.",
+          "description": "The serial line the panels are connected to, together with their brand. The brand decides which protocol is used to read the buttons and to drive the indicator lights. Pick the port from the list or type a path, a port that this integration already uses is not in the list.",
           "data": {
             "brand": "Panel brand",
             "port": "Serial device",
@@ -129,19 +129,12 @@
             "panel_start": "First panel address",
             "panel_count": "Number of panels",
             "buttons": "Buttons per panel"
-          }
-        },
-        "port_manual": {
-          "title": "Enter the serial port path",
-          "description": "The device path as Home Assistant sees it, for example /dev/ttyUSB0, /dev/ttyS0 or COM3.",
-          "data": {
-            "port": "Serial device"
-          }
+          },
+          "description": "The serial line the panels are connected to, together with their brand. The brand decides which protocol is used to read the buttons and to drive the indicator lights. Pick the port from the list or type a path, a port that this integration already uses is not in the list."
         }
       },
       "error": {
-        "invalid_panel_path": "Enter a valid serial device path",
-        "invalid_serial_path": "Enter a valid serial device path"
+        "invalid_panel_path": "Enter a valid serial device path"
       }
     },
     "linkage": {
@@ -153,7 +146,7 @@
       "step": {
         "user": {
           "title": "Link a panel button to a relay",
-          "description": "Pick the buttons of the wall panels and the relays of the Modbus slaves. The state is shared in both directions, so a button drives the relays and the relays light up the buttons.",
+          "description": "Pick the buttons of the wall panels and the relays of the Modbus slaves. The state is shared in both directions: a button drives the relays, a relay lights up the buttons. The upper picker only shows the panel buttons, the lower one only the relays.",
           "data": {
             "panel_entities": "Panel buttons",
             "relay_entities": "Modbus relays"
@@ -164,7 +157,8 @@
           "data": {
             "panel_entities": "Panel buttons",
             "relay_entities": "Modbus relays"
-          }
+          },
+          "description": "Pick the buttons of the wall panels and the relays of the Modbus slaves. The state is shared in both directions: a button drives the relays, a relay lights up the buttons. The upper picker only shows the panel buttons, the lower one only the relays."
         }
       },
       "error": {
