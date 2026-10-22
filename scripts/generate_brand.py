@@ -8,9 +8,10 @@ Produces the eight files the Home Assistant brands proxy expects inside
 * ``dark_icon.png`` / ``dark_icon@2x.png``
 * ``dark_logo.png`` / ``dark_logo@2x.png``
 
-The source artwork is white glyphs on the brand orange. The orange becomes the
-background of the icon, while the logo keeps the orange block for the mark and
-sets the wordmark in orange on the page background.
+The source artwork holds the mark in its upper half and the wordmark in its
+lower half, both as white shapes on the brand orange. The icon keeps the
+orange field, the logo sets the wordmark in orange on a light field next to
+the mark.
 """
 
 from __future__ import annotations
@@ -24,114 +25,96 @@ SOURCE = ROOT / "assets" / "icon_source.png"
 BRAND_DIR = ROOT / "custom_components" / "symi_modbus" / "brand"
 
 BRAND_ORANGE = (225, 104, 43)
-DARK_BACKGROUND = (24, 26, 31, 255)
 LIGHT_BACKGROUND = (255, 255, 255, 255)
+DARK_BACKGROUND = (24, 26, 31, 255)
 
 ICON_SIZE = 256
 LOGO_HEIGHT = 256
 
-# Fraction of the source height where the mark ends and the wordmark starts.
-MARK_BOTTOM = 0.56
-WORDMARK_TOP = 0.60
+# Boxes in the 1800 x 1800 source artwork, in source pixels.
+MARK_BOX = (600, 440, 1200, 1040)
+WORDMARK_BOX = (140, 1100, 1660, 1300)
 
 
-def _mask_of_artwork(source: Image.Image) -> Image.Image:
-    """Return a mask that is opaque on the white glyphs and clear elsewhere."""
-    mask = Image.new("L", source.size, 0)
-    pixels = source.convert("RGB").load()
-    mask_px = mask.load()
-    width, height = source.size
+def _white_mask(image: Image.Image) -> Image.Image:
+    """Return a mask that is opaque on the white shapes of the artwork."""
+    mask = Image.new("L", image.size, 0)
+    pixels = image.convert("RGB").load()
+    mask_pixels = mask.load()
 
-    for y in range(height):
-        for x in range(width):
+    for y in range(image.height):
+        for x in range(image.width):
             red, green, blue = pixels[x, y]
-            # The glyphs are white; everything else is the orange field.
             if red > 200 and green > 200 and blue > 200:
-                mask_px[x, y] = 255
+                mask_pixels[x, y] = 255
 
     return mask
 
 
-def _glyphs(source: Image.Image, mask: Image.Image) -> Image.Image:
-    """Return the white glyphs with a transparent background."""
-    artwork = Image.new("RGBA", source.size, (255, 255, 255, 0))
-    artwork.putalpha(mask)
-    return artwork
-
-
-def _split(artwork: Image.Image) -> tuple[Image.Image, Image.Image]:
-    """Cut the artwork into the mark (top) and the wordmark (bottom)."""
-    width, height = artwork.size
-    mark = artwork.crop((0, 0, width, int(height * MARK_BOTTOM)))
-    wordmark = artwork.crop((0, int(height * WORDMARK_TOP), width, height))
-    return mark, wordmark
-
-
-def _trim(image: Image.Image) -> Image.Image:
-    """Remove the transparent border around the artwork."""
-    box = image.getbbox()
-    if box is None:
-        return image
+def _crop(image: Image.Image, box: tuple[int, int, int, int]) -> Image.Image:
+    """Crop the artwork to a box."""
     return image.crop(box)
 
 
-def _solid(image: Image.Image, color: tuple[int, int, int]) -> Image.Image:
-    """Return the artwork recoloured to a single colour."""
-    alpha = image.getchannel("A")
-    filled = Image.new("RGBA", image.size, (*color, 255))
-    filled.putalpha(alpha)
+def _make_icon(mark: Image.Image) -> Image.Image:
+    """Return the square icon: the mark on the brand orange."""
+    side = max(mark.size)
+    canvas = Image.new("RGB", (side, side), BRAND_ORANGE)
+    canvas.paste(mark.convert("RGB"), ((side - mark.width) // 2, (side - mark.height) // 2))
+    return canvas.resize((ICON_SIZE, ICON_SIZE), Image.LANCZOS)
+
+
+def _wordmark_in_orange(wordmark: Image.Image) -> Image.Image:
+    """Return the wordmark as orange shapes on a transparent background."""
+    mask = _white_mask(wordmark)
+    filled = Image.new("RGBA", wordmark.size, (*BRAND_ORANGE, 0))
+    filled.putalpha(mask)
     return filled
 
 
-def _make_icon(mark: Image.Image) -> Image.Image:
-    """Return the square icon: white mark on the brand orange."""
-    glyphs = _trim(mark)
-    side = max(glyphs.size)
-    canvas = Image.new("RGBA", (side, side), (*BRAND_ORANGE, 255))
-    canvas.alpha_composite(glyphs, ((side - glyphs.width) // 2, (side - glyphs.height) // 2))
-    return canvas.convert("RGB").resize((ICON_SIZE, ICON_SIZE), Image.LANCZOS)
-
-
-def _make_logo(mark: Image.Image, wordmark: Image.Image, background: tuple[int, int, int]) -> Image.Image:
-    """Return the horizontal logo: orange block with the mark, orange wordmark."""
-    glyphs_mark = _trim(mark)
-    glyphs_word = _trim(wordmark)
-
+def _make_logo(mark: Image.Image, wordmark: Image.Image, background: tuple[int, int, int, int]) -> Image.Image:
+    """Return the horizontal logo: the mark on orange next to the wordmark."""
     mark_height = LOGO_HEIGHT
-    mark_width = round(glyphs_mark.width * mark_height / glyphs_mark.height)
-    mark_resized = glyphs_mark.resize((mark_width, mark_height), Image.LANCZOS)
+    mark_width = round(mark.width * mark_height / mark.height)
+    mark_resized = mark.convert("RGB").resize((mark_width, mark_height), Image.LANCZOS)
 
-    wordmark_height = round(LOGO_HEIGHT * 0.40)
-    wordmark_width = round(glyphs_word.width * wordmark_height / glyphs_word.height)
-    wordmark_resized = glyphs_word.resize((wordmark_width, wordmark_height), Image.LANCZOS)
+    wordmark_height = round(LOGO_HEIGHT * 0.30)
+    wordmark_width = round(wordmark.width * wordmark_height / wordmark.height)
+    wordmark_resized = _wordmark_in_orange(wordmark).resize(
+        (wordmark_width, wordmark_height), Image.LANCZOS
+    )
 
-    gap = round(LOGO_HEIGHT * 0.14)
-    block_width = mark_width + round(LOGO_HEIGHT * 0.18)
+    gap = round(LOGO_HEIGHT * 0.12)
+    block_width = mark_width + round(LOGO_HEIGHT * 0.16)
     total_width = block_width + gap + wordmark_width
 
-    canvas = Image.new("RGBA", (total_width, LOGO_HEIGHT), (background[0], background[1], background[2], 255))
-    # The mark keeps its orange block so it stays recognisable.
-    block = Image.new("RGBA", (block_width, LOGO_HEIGHT), (*BRAND_ORANGE, 255))
-    block.alpha_composite(mark_resized, ((block_width - mark_width) // 2, 0))
-    canvas.alpha_composite(block, (0, 0))
-
-    # The wordmark is the white glyphs recoloured to the brand orange.
-    orange_word = _solid(wordmark_resized, BRAND_ORANGE)
-    canvas.alpha_composite(orange_word, (block_width + gap, LOGO_HEIGHT - wordmark_height))
+    canvas = Image.new("RGBA", (total_width, LOGO_HEIGHT), background)
+    block = Image.new("RGB", (block_width, LOGO_HEIGHT), BRAND_ORANGE)
+    block.paste(mark_resized, ((block_width - mark_width) // 2, 0))
+    canvas.paste(block.convert("RGBA"), (0, 0))
+    canvas.alpha_composite(
+        wordmark_resized, (block_width + gap, LOGO_HEIGHT - wordmark_height)
+    )
     return canvas.convert("RGB")
 
 
 def main() -> None:
     """Write every brand file."""
     BRAND_DIR.mkdir(parents=True, exist_ok=True)
-    source = Image.open(SOURCE).convert("RGBA")
-    mask = _mask_of_artwork(source)
-    mark, wordmark = _split(_glyphs(source, mask))
+    source = Image.open(SOURCE).convert("RGB")
+
+    mark = _crop(source, MARK_BOX)
+    wordmark = _crop(source, WORDMARK_BOX)
 
     icon = _make_icon(mark)
     icon.save(BRAND_DIR / "icon.png", optimize=True)
     icon.resize((ICON_SIZE * 2, ICON_SIZE * 2), Image.LANCZOS).save(
         BRAND_DIR / "icon@2x.png", optimize=True
+    )
+    # The mark is an orange field, so it reads the same on a dark background.
+    icon.save(BRAND_DIR / "dark_icon.png", optimize=True)
+    icon.resize((ICON_SIZE * 2, ICON_SIZE * 2), Image.LANCZOS).save(
+        BRAND_DIR / "dark_icon@2x.png", optimize=True
     )
 
     for suffix, background in (("", LIGHT_BACKGROUND), ("dark_", DARK_BACKGROUND)):
@@ -140,13 +123,6 @@ def main() -> None:
         logo.resize((logo.width * 2, logo.height * 2), Image.LANCZOS).save(
             BRAND_DIR / f"{suffix}logo@2x.png", optimize=True
         )
-
-        if suffix:
-            # The dark icon keeps the brand block, it reads well on both themes.
-            icon.save(BRAND_DIR / "dark_icon.png", optimize=True)
-            icon.resize((ICON_SIZE * 2, ICON_SIZE * 2), Image.LANCZOS).save(
-                BRAND_DIR / "dark_icon@2x.png", optimize=True
-            )
 
     for path in sorted(BRAND_DIR.glob("*.png")):
         with Image.open(path) as image:

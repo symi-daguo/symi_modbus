@@ -11,14 +11,17 @@ One config entry describes **one Modbus master** (a serial port or a TCP endpoin
 |------|--------|
 | Version | **2.0.0** |
 | Home Assistant | **2024.11.0** or newer (developed against 2026.10.2) |
-| Python dependency | `pyserial` (declared in `manifest.json`) |
+| Python dependency | `pyserial`, `pyserial-asyncio` (declared in `manifest.json`) |
 
 ## Features
 
 - **Serial RTU** and **TCP**, with the frame format chosen per connection:
   `Modbus TCP (MBAP)` or `Modbus RTU over TCP` for serial-to-ethernet gateways.
+  A serial port always speaks RTU, the MBAP header only exists on TCP.
 - **One master, many slaves**: add several slave addresses to the same connection in a single
   configuration flow. Each slave is polled on its own and gets its own device in Home Assistant.
+- **Coil count per slave**, so a 16 channel module does not create 16 switches that never
+  change.
 - **Persistent connection** with automatic reconnect. The link is kept open between requests, so
   the device is not reset by opening the port over and over.
 - **Survives outages**: when the device reboots or the network drops, the entities turn
@@ -41,13 +44,18 @@ directory and restart.
 
 1. Choose **TCP** or **Serial**.
 2. **TCP:** host, port and frame format. **Serial:** pick a detected port or enter a manual path,
-   then set baud rate, data bits, parity and stop bits.
-3. Enter the **slave address** (decimal, default 10 = `0x0A`). Tick *Add another slave* to add
-   more slaves on the same connection, then enter the next address.
+   then set baud rate, data bits, parity and stop bits. The defaults are 9600 baud, 8 data bits,
+   no parity and one stop bit.
+3. Enter the **slave address** (decimal, default 10 = `0x0A`) and the **coil count** of that
+   device. Tick *Add another slave* to add more slaves on the same connection, then enter the next
+   address.
 4. The entry is created with all slaves of that master.
 
 To use a second master (another serial port or another gateway), add the integration again. Each
 entry keeps its own connection, so the masters poll independently.
+
+The devices show up as `Serial /dev/ttyUSB0 从站 0A`, so a device can be told apart by its link
+and by its slave address.
 
 ## Docker and serial
 

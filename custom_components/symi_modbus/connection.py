@@ -3,10 +3,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import Optional
 
 import serial
-import serial_asyncio
+
+try:
+    # Home Assistant 2026.7 deprecated pyserial-asyncio in favour of
+    # pyserial-asyncio-fast, which offers the same API.
+    import serial_asyncio_fast as serial_asyncio
+except ImportError:  # pragma: no cover - fallback for older installs
+    import serial_asyncio
 
 from .const import FRAME_MBAP
 from .frames import decode_response, expected_response_length
@@ -109,8 +116,18 @@ class ModbusConnection:
             self._reader, self._writer = await asyncio.wait_for(
                 asyncio.open_connection(self._host, int(self._port)), CONNECT_TIMEOUT
             )
+            _LOGGER.debug("Modbus TCP connected to %s:%s", self._host, self._port)
             return
 
+        _LOGGER.debug(
+            "Opening serial %s at %s %s%s%s (serial_asyncio from %s)",
+            self._port,
+            self._baudrate,
+            self._bytesize,
+            self._parity,
+            self._stopbits,
+            serial_asyncio.__file__,
+        )
         self._reader, self._writer = await asyncio.wait_for(
             serial_asyncio.open_serial_connection(
                 url=str(self._port),
@@ -120,6 +137,22 @@ class ModbusConnection:
                 stopbits=_serial_stopbits(self._stopbits),
             ),
             CONNECT_TIMEOUT,
+        )
+        _LOGGER.debug("Serial %s opened", self._port)
+        transport = self._writer.transport
+        serial_port = transport.get_extra_info("serial")
+        fileno = getattr(serial_port, "fileno", lambda: None)()
+        target = ""
+        if fileno is not None:
+            try:
+                target = os.readlink(f"/proc/self/fd/{fileno}")
+            except OSError:
+                target = "unknown"
+        _LOGGER.debug(
+            "Serial fd=%s -> %s (name=%s)",
+            fileno,
+            target,
+            getattr(serial_port, "name", "?"),
         )
 
     async def async_request(self, payload: bytes, function: int) -> bytes | None:
@@ -141,13 +174,19 @@ class ModbusConnection:
                 assert self._reader is not None
                 self._writer.write(payload)
                 await self._writer.drain()
+                _LOGGER.debug("Sent %s byte(s): %s", len(payload), payload.hex(' '))
 
                 if self._type == "serial":
                     await asyncio.sleep(SERIAL_POST_WRITE_DELAY)
 
                 frame = await self._async_read_frame(function)
             except Exception as err:  # noqa: BLE001
-                _LOGGER.debug("Modbus request failed: %s", err)
+                _LOGGER.debug(
+                    "Modbus request failed: %s: %r",
+                    type(err).__name__,
+                    str(err),
+                    exc_info=True,
+                )
                 await self.async_close()
                 return None
 
@@ -191,10 +230,22 @@ class ModbusConnection:
         assert self._reader is not None
 
         while len(self._buffer) < MAX_FRAME_SIZE:
-            chunk = await asyncio.wait_for(self._reader.read(MAX_FRAME_SIZE), READ_TIMEOUT)
+            try:
+                chunk = await asyncio.wait_for(
+                    self._reader.read(MAX_FRAME_SIZE), READ_TIMEOUT
+                )
+            except asyncio.TimeoutError:
+                _LOGGER.debug(
+                    "Read timed out after %ss, %s byte(s) buffered",
+                    READ_TIMEOUT,
+                    len(self._buffer),
+                )
+                return None
             if not chunk:
                 # Peer closed the connection.
+                _LOGGER.debug("Peer closed the connection")
                 return None
+            _LOGGER.debug("Read %s byte(s): %s", len(chunk), chunk.hex(" "))
             self._buffer.extend(chunk)
 
             expected = expected_response_length(bytes(self._buffer), self._frame, function)

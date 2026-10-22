@@ -22,11 +22,15 @@ from .const import (
     CONF_PARITY,
     CONF_PORT,
     CONF_SCAN_INTERVAL,
+    CONF_SERIAL,
     CONF_SLAVES,
     CONF_STOPBITS,
+    CONF_TCP,
     CONF_TYPE,
+    DEFAULT_COIL_COUNT,
     DEFAULT_SCAN_INTERVAL,
     FRAME_MBAP,
+    FRAME_RTU,
 )
 from .connection import ModbusConnection
 from .frames import (
@@ -69,8 +73,13 @@ class ModbusHub:
             self._config.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
         )
         self._delay = self._config.get(CONF_DELAY, 0)
-        self._frame = self._config.get(CONF_FRAME, FRAME_MBAP)
-        self._coil_count = int(self._config.get(CONF_COIL_COUNT, 32))
+        if self._type == CONF_SERIAL:
+            # A serial line always carries RTU frames, the MBAP header only
+            # exists on TCP.
+            self._frame = FRAME_RTU
+        else:
+            self._frame = self._config.get(CONF_FRAME, FRAME_MBAP)
+        self._coil_count = int(self._config.get(CONF_COIL_COUNT, DEFAULT_COIL_COUNT))
         self._slaves: dict[int, dict] = {}
         self._slave_data: dict[int, dict[int, bool]] = {}
         self._unsub_poll = None
@@ -95,6 +104,13 @@ class ModbusHub:
     def name(self) -> str:
         """Return the name of this hub."""
         return self._name
+
+    @property
+    def endpoint(self) -> str:
+        """Return a readable description of the connection."""
+        if self._type == CONF_TCP:
+            return f"{self._config.get(CONF_HOST)}:{self._config.get(CONF_PORT)}"
+        return str(self._config.get(CONF_PORT))
 
     @property
     def entry_id(self) -> str:
@@ -259,6 +275,10 @@ class ModbusHub:
 
     def handle_state(self, states: dict[int, bool], slave: int) -> None:
         """Store new states and push them to the listeners."""
+        if slave not in self._slave_data:
+            _LOGGER.info(
+                "Slave %s answered, %s coil(s) read", slave, len(states)
+            )
         self._slave_data[slave] = states
         for callback in self._callbacks:
             try:
@@ -305,6 +325,7 @@ class ModbusHub:
         if slave in self._slave_data and address in self._slave_data[slave]:
             self._slave_data[slave][address] = value
 
+        _LOGGER.info("Wrote coil %s of slave %s to %s", address, slave, value)
         return True
 
     async def write_coils(self, slave: int, address: int, values: list[bool]) -> bool:

@@ -44,6 +44,7 @@
         "description": "Enter the unit ID of the device on this connection (default 10 = 0x0A). Tick the box to add another slave on the same connection.",
         "data": {
           "slave": "Slave address (decimal)",
+          "coil_count": "Coil count",
           "add_more_slaves": "Add another slave"
         }
       }

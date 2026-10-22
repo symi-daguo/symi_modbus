@@ -9,6 +9,11 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.selector import (
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
+)
 from serial.tools.list_ports_common import ListPortInfo
 
 from .const import (
@@ -33,6 +38,7 @@ from .const import (
     DEFAULT_SLAVE,
     DEFAULT_TCP_PORT,
     DOMAIN,
+    MAX_COIL_COUNT,
     FRAME_MBAP,
     FRAME_RTU,
     SERIAL_PORT_MANUAL_VALUE,
@@ -51,7 +57,9 @@ CONNECTION_TYPE_SCHEMA = vol.Schema(
 TCP_CONNECTION_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_HOST): cv.string,
-        vol.Optional(CONF_PORT, default=DEFAULT_TCP_PORT): cv.port,
+        vol.Optional(CONF_PORT, default=DEFAULT_TCP_PORT): NumberSelector(
+            NumberSelectorConfig(min=1, max=65535, mode=NumberSelectorMode.BOX)
+        ),
         vol.Required(CONF_FRAME, default=FRAME_MBAP): vol.In(
             {FRAME_MBAP: "Modbus TCP (MBAP)", FRAME_RTU: "Modbus RTU over TCP"}
         ),
@@ -250,13 +258,14 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """
         if user_input is not None:
             slave = int(user_input[CONF_SLAVE])
+            count = int(user_input.get(CONF_COIL_COUNT, DEFAULT_COIL_COUNT))
             if slave in self._slaves:
                 return self.async_show_form(
                     step_id="slave",
                     data_schema=self._slave_schema(user_input),
                     errors={"base": "slave_already_added"},
                 )
-            self._slaves[slave] = {"start": 0, "count": DEFAULT_COIL_COUNT}
+            self._slaves[slave] = {"start": 0, "count": count}
 
             if not user_input.get(ADD_MORE_SLAVES):
                 return await self._async_create_entry()
@@ -270,10 +279,16 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def _slave_schema(self, user_input: dict | None = None) -> vol.Schema:
         """Build the schema of the slave step."""
         add_more = bool((user_input or {}).get(ADD_MORE_SLAVES))
+        count = int((user_input or {}).get(CONF_COIL_COUNT, DEFAULT_COIL_COUNT))
         return vol.Schema(
             {
-                vol.Required(CONF_SLAVE, default=DEFAULT_SLAVE): vol.All(
-                    vol.Coerce(int), vol.Range(min=0, max=247)
+                vol.Required(CONF_SLAVE, default=DEFAULT_SLAVE): NumberSelector(
+                    NumberSelectorConfig(min=0, max=247, mode=NumberSelectorMode.BOX)
+                ),
+                vol.Optional(CONF_COIL_COUNT, default=count): NumberSelector(
+                    NumberSelectorConfig(
+                        min=1, max=MAX_COIL_COUNT, mode=NumberSelectorMode.BOX
+                    )
                 ),
                 vol.Optional(ADD_MORE_SLAVES, default=add_more): cv.boolean,
             }
@@ -305,8 +320,16 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         entry_data = {
             CONF_TYPE: self._connection_type,
             CONF_NAME: name,
+            # A serial line always uses RTU frames.
+            CONF_FRAME: (
+                FRAME_RTU
+                if self._connection_type == CONF_SERIAL
+                else self._connection_data.get(CONF_FRAME, FRAME_MBAP)
+            ),
             CONF_SCAN_INTERVAL: DEFAULT_SCAN_INTERVAL,
-            CONF_COIL_COUNT: DEFAULT_COIL_COUNT,
+            CONF_COIL_COUNT: max(
+                options["count"] for options in self._slaves.values()
+            ),
             CONF_SLAVES: {str(slave): options for slave, options in self._slaves.items()},
             **self._connection_data,
         }

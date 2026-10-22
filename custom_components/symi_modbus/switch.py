@@ -87,7 +87,8 @@ class ModbusSwitch(SwitchEntity):
         return DeviceInfo(
             # The entry id keeps the device stable even when the title changes.
             identifiers={(DOMAIN, f"{self._hub.entry_id}_{self._slave}")},
-            name=f"{conn} Slave {self._slave:02X}",
+            # The link and the slave id tell the devices apart.
+            name=f"{conn} {self._hub.endpoint} 从站 {self._slave:02X}",
             manufacturer="Symi",
             model="Modbus Relay Module",
         )
@@ -133,6 +134,9 @@ class ModbusSwitch(SwitchEntity):
         self._is_on = new_state
         if changed or not self._attr_available:
             self._attr_available = True
+            _LOGGER.debug(
+                "Coil %s of slave %s is %s", self._address, self._slave, new_state
+            )
             self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:

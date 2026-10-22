@@ -18,7 +18,8 @@ DEFAULT_SCAN_INTERVAL: Final = 5
 DEFAULT_TCP_PORT: Final = 502
 DEFAULT_SLAVE: Final = 0x0A
 DEFAULT_DELAY_MS: Final = 0
-DEFAULT_COIL_COUNT: Final = 32
+DEFAULT_COIL_COUNT: Final = 16
+MAX_COIL_COUNT: Final = 64
 
 # Connection types
 CONF_TCP: Final = "tcp"
