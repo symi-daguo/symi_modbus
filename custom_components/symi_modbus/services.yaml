@@ -1,73 +1,78 @@
 write_coil:
-  name: Write Coil
+  name: Write coil
   description: Write a coil value to a Modbus device.
   fields:
     address:
       name: Address
-      description: Coil address (required).
+      description: Coil address.
       required: true
       example: 0
       selector:
         number:
           min: 0
+          max: 65535
           mode: box
     slave:
       name: Slave
-      description: Slave unit ID (required).
+      description: Slave unit ID.
       required: true
       example: 10
       selector:
         number:
           min: 0
+          max: 247
           mode: box
     state:
       name: State
-      description: Value to write (boolean or list of booleans).
+      description: Value to write.
       required: true
       example: true
       selector:
         boolean:
     hub:
       name: Hub
-      description: Integration entry title shown in Settings (same as the hub name, e.g. Modbus TCP 0A). Optional; default is a legacy placeholder and may not match your entry.
-      example: Modbus TCP 0A
+      description: Entry title shown in Settings. Leave empty when only one connection is configured.
+      example: Modbus TCP 192.168.1.10:502
       selector:
         text:
 
 write_register:
-  name: Write Register
-  description: Write register is not implemented for this device profile.
+  name: Write register
+  description: Write a register value. Not supported by this device profile.
   fields:
     address:
       name: Address
-      description: Register address (required).
+      description: Register address.
       required: true
       example: 0
       selector:
         number:
           min: 0
-          mode: box
-    slave:
-      name: Slave
-      description: Slave unit ID (required).
-      required: true
-      example: 10
-      selector:
-        number:
-          min: 0
+          max: 65535
           mode: box
     value:
       name: Value
-      description: Value to write (integer or list of integers).
+      description: Value to write.
       required: true
       example: 1
       selector:
         number:
           min: 0
+          max: 65535
+          mode: box
+    slave:
+      name: Slave
+      description: Slave unit ID.
+      required: true
+      example: 10
+      selector:
+        number:
+          min: 0
+          max: 247
           mode: box
     hub:
       name: Hub
-      description: Integration entry title (same as hub name).
-      example: Modbus TCP 0A
+      description: Entry title shown in Settings.
+      example: Modbus TCP 192.168.1.10:502
       selector:
         text:

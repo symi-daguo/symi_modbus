@@ -1,45 +1,52 @@
 """Config flow for Symi Modbus."""
+from __future__ import annotations
+
 import logging
 import re
-import serial.tools.list_ports
-from serial.tools.list_ports_common import ListPortInfo
-import voluptuous as vol
 
+import serial.tools.list_ports
+import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.const import (
-    CONF_HOST,
-    CONF_METHOD,
-    CONF_PORT,
-    CONF_SCAN_INTERVAL,
-    CONF_SLAVE,
-    CONF_TYPE,
-)
 from homeassistant.core import callback
-import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers import config_validation as cv
+from serial.tools.list_ports_common import ListPortInfo
 
 from .const import (
+    ADD_MORE_SLAVES,
     CONF_BAUDRATE,
     CONF_BYTESIZE,
+    CONF_COIL_COUNT,
+    CONF_FRAME,
+    CONF_HOST,
+    CONF_NAME,
     CONF_PARITY,
+    CONF_PORT,
+    CONF_SCAN_INTERVAL,
     CONF_SERIAL,
+    CONF_SLAVE,
+    CONF_SLAVES,
     CONF_STOPBITS,
     CONF_TCP,
+    CONF_TYPE,
+    DEFAULT_COIL_COUNT,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_SLAVE,
     DEFAULT_TCP_PORT,
     DOMAIN,
+    FRAME_MBAP,
+    FRAME_RTU,
     SERIAL_PORT_MANUAL_VALUE,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
+MAX_SLAVES = 32
+MAX_COIL_COUNT = 64
+
 CONNECTION_TYPE_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_TYPE, default=CONF_TCP): vol.In(
-            {
-                CONF_TCP: "TCP",
-                CONF_SERIAL: "Serial",
-            }
+            {CONF_TCP: "TCP", CONF_SERIAL: "Serial"}
         )
     }
 )
@@ -48,6 +55,9 @@ TCP_CONNECTION_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_HOST): cv.string,
         vol.Optional(CONF_PORT, default=DEFAULT_TCP_PORT): cv.port,
+        vol.Required(CONF_FRAME, default=FRAME_MBAP): vol.In(
+            {FRAME_MBAP: "Modbus TCP (MBAP)", FRAME_RTU: "Modbus RTU over TCP"}
+        ),
     }
 )
 
@@ -57,7 +67,6 @@ SERIAL_PARAMS_SCHEMA = vol.Schema(
         vol.Optional(CONF_BYTESIZE, default=8): vol.In([5, 6, 7, 8]),
         vol.Optional(CONF_PARITY, default="N"): vol.In(["E", "O", "N", "None"]),
         vol.Optional(CONF_STOPBITS, default=1): vol.In([1, 2]),
-        vol.Optional(CONF_METHOD, default="rtu"): vol.In(["rtu", "ascii"]),
     }
 )
 
@@ -67,13 +76,16 @@ SERIAL_MANUAL_PATH_SCHEMA = vol.Schema(
     }
 )
 
-SLAVE_SCHEMA = vol.Schema(
+COIL_SCHEMA = vol.Schema(
     {
-        vol.Required(CONF_SLAVE, default=DEFAULT_SLAVE): cv.positive_int,
+        vol.Optional(CONF_COIL_COUNT, default=DEFAULT_COIL_COUNT): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=MAX_COIL_COUNT)
+        ),
     }
 )
 
-def _list_serial_ports() -> list:
+
+def _list_serial_ports() -> list[ListPortInfo]:
     """Enumerate serial ports on the machine running Home Assistant."""
     try:
         return list(serial.tools.list_ports.comports())
@@ -119,29 +131,33 @@ def _format_serial_port_label(info: ListPortInfo) -> str:
 
 
 class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Symi Modbus."""
+    """Handle a config flow for Symi Modbus.
 
-    VERSION = 1
+    One config entry describes one Modbus master (a serial port or a TCP
+    endpoint) together with the slaves that hang behind it.
+    """
+
+    VERSION = 2
     CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the config flow."""
-        self._connection_type = None
-        self._connection_data = {}
+        self._connection_type: str | None = None
+        self._connection_data: dict = {}
+        self._slaves: dict[int, dict] = {}
 
     @staticmethod
     @callback
-    def async_get_options_flow(config_entry):
+    def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> SymiModbusOptionsFlow:
         """Get the options flow for this handler."""
-        return SymiModbusOptionsFlow(config_entry)
+        return SymiModbusOptionsFlow()
 
-    async def async_step_user(self, user_input=None):
+    async def async_step_user(self, user_input: dict | None = None) -> config_entries.ConfigFlowResult:
         """Handle the initial step - select connection type."""
         if user_input is not None:
             self._connection_type = user_input[CONF_TYPE]
-            # Initialize connection data with empty dict
             self._connection_data = {}
-            
+
             if self._connection_type == CONF_TCP:
                 return await self.async_step_tcp()
             return await self.async_step_serial_pick()
@@ -151,9 +167,9 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=CONNECTION_TYPE_SCHEMA,
         )
 
-    async def async_step_tcp(self, user_input=None):
+    async def async_step_tcp(self, user_input: dict | None = None) -> config_entries.ConfigFlowResult:
         """Handle TCP connection configuration."""
-        errors = {}
+        errors: dict[str, str] = {}
         if user_input is not None:
             host = (user_input.get(CONF_HOST) or "").strip()
             if not host:
@@ -168,7 +184,7 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def async_step_serial_pick(self, user_input=None):
+    async def async_step_serial_pick(self, user_input: dict | None = None) -> config_entries.ConfigFlowResult:
         """Pick a detected serial device or choose manual path entry."""
         if user_input is not None:
             choice = user_input[CONF_PORT]
@@ -204,7 +220,7 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=schema,
         )
 
-    async def async_step_serial_manual(self, user_input=None):
+    async def async_step_serial_manual(self, user_input: dict | None = None) -> config_entries.ConfigFlowResult:
         """Enter serial device path manually (USB or on-board UART)."""
         errors: dict[str, str] = {}
 
@@ -222,12 +238,12 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def async_step_serial_params(self, user_input=None):
+    async def async_step_serial_params(self, user_input: dict | None = None) -> config_entries.ConfigFlowResult:
         """Serial port parameters (baudrate, parity, etc.)."""
         if user_input is not None:
             data = dict(user_input)
             parity = str(data.get(CONF_PARITY, "N")).strip()
-            if parity.lower() in ("none",):
+            if parity.lower() == "none":
                 data[CONF_PARITY] = "N"
             self._connection_data.update(data)
             return await self.async_step_slave()
@@ -237,81 +253,95 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=SERIAL_PARAMS_SCHEMA,
         )
 
-    async def async_step_slave(self, user_input=None):
-        """Handle slave configuration."""
-        errors: dict[str, str] = {}
+    async def async_step_slave(self, user_input: dict | None = None) -> config_entries.ConfigFlowResult:
+        """Add a slave to this master.
+
+        The form carries the slave address and a checkbox that asks for one
+        more slave, so adding several slaves takes a single step per slave.
+        """
         if user_input is not None:
-            slave = user_input[CONF_SLAVE]
+            slave = int(user_input[CONF_SLAVE])
+            if slave in self._slaves:
+                return self.async_show_form(
+                    step_id="slave",
+                    data_schema=self._slave_schema(user_input),
+                    errors={"base": "slave_already_added"},
+                )
+            self._slaves[slave] = {"start": 0, "count": DEFAULT_COIL_COUNT}
 
-            for entry in self._async_current_entries():
-                if entry.data.get(CONF_SLAVE) == slave and entry.data.get(CONF_TYPE) == self._connection_type:
-                    if self._connection_type == CONF_TCP:
-                        host = self._connection_data[CONF_HOST]
-                        port = self._connection_data[CONF_PORT]
-                        entry_host = entry.data.get(CONF_HOST)
-                        entry_port = entry.data.get(CONF_PORT)
-                        if host == entry_host and port == entry_port:
-                            errors["base"] = "already_configured"
-                            break
-                    else:
-                        port = self._connection_data[CONF_PORT]
-                        entry_port = entry.data.get(CONF_PORT)
-                        if port == entry_port:
-                            errors["base"] = "already_configured"
-                            break
-
-            if not errors:
-                if self._connection_type == CONF_TCP:
-                    name = f"Modbus TCP {slave:02X}"
-                    host = self._connection_data[CONF_HOST]
-                    port = self._connection_data[CONF_PORT]
-                    unique_id = f"modbus_tcp_{host}_{port}_{slave:02X}"
-                else:
-                    name = f"Modbus Serial {slave:02X}"
-                    port = self._connection_data[CONF_PORT]
-                    safe_port = re.sub(r"[^a-zA-Z0-9._-]+", "_", str(port)).strip("_")
-                    unique_id = f"modbus_serial_{safe_port}_{slave:02X}"
-
-                entry_data = {
-                    CONF_TYPE: self._connection_type,
-                    CONF_NAME: name,
-                    CONF_SLAVE: slave,
-                    CONF_SCAN_INTERVAL: 1,
-                    **self._connection_data,
-                }
-
-                await self.async_set_unique_id(unique_id)
-                self._abort_if_unique_id_configured()
-
-                return self.async_create_entry(title=name, data=entry_data)
+            if not user_input.get(ADD_MORE_SLAVES):
+                return await self._async_create_entry()
+            return await self.async_step_slave()
 
         return self.async_show_form(
             step_id="slave",
-            data_schema=SLAVE_SCHEMA,
-            errors=errors,
+            data_schema=self._slave_schema(),
         )
+
+    def _slave_schema(self, user_input: dict | None = None) -> vol.Schema:
+        """Build the schema of the slave step."""
+        add_more = bool((user_input or {}).get(ADD_MORE_SLAVES))
+        return vol.Schema(
+            {
+                vol.Required(CONF_SLAVE, default=DEFAULT_SLAVE): vol.All(
+                    vol.Coerce(int), vol.Range(min=0, max=247)
+                ),
+                vol.Optional(ADD_MORE_SLAVES, default=add_more): cv.boolean,
+            }
+        )
+
+    async def _async_create_entry(self) -> config_entries.ConfigFlowResult:
+        """Create the config entry for this master and its slaves."""
+        if not self._slaves:
+            return self.async_show_form(
+                step_id="slave",
+                data_schema=SLAVE_SCHEMA,
+                errors={"base": "no_slaves"},
+            )
+
+        if self._connection_type == CONF_TCP:
+            host = self._connection_data[CONF_HOST]
+            port = self._connection_data[CONF_PORT]
+            name = f"Modbus TCP {host}:{port}"
+            unique_id = f"modbus_tcp_{host}_{port}"
+        else:
+            port = self._connection_data[CONF_PORT]
+            safe_port = re.sub(r"[^a-zA-Z0-9._-]+", "_", str(port)).strip("_")
+            name = f"Modbus Serial {port}"
+            unique_id = f"modbus_serial_{safe_port}"
+
+        await self.async_set_unique_id(unique_id)
+        self._abort_if_unique_id_configured()
+
+        entry_data = {
+            CONF_TYPE: self._connection_type,
+            CONF_NAME: name,
+            CONF_SCAN_INTERVAL: DEFAULT_SCAN_INTERVAL,
+            CONF_COIL_COUNT: DEFAULT_COIL_COUNT,
+            CONF_SLAVES: {str(slave): options for slave, options in self._slaves.items()},
+            **self._connection_data,
+        }
+
+        return self.async_create_entry(title=name, data=entry_data)
 
 
 class SymiModbusOptionsFlow(config_entries.OptionsFlow):
-    """Handle options."""
+    """Handle options for an existing master."""
 
-    def __init__(self, config_entry):
-        """Initialize options flow."""
-        self.config_entry = config_entry
-
-    async def async_step_init(self, user_input=None):
+    async def async_step_init(self, user_input: dict | None = None) -> config_entries.ConfigFlowResult:
         """Manage the options."""
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        scan_default = self.config_entry.options.get(
+        entry = self.config_entry
+        scan_default = entry.options.get(
             CONF_SCAN_INTERVAL,
-            self.config_entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
+            entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
         )
         options = {
             vol.Optional(CONF_SCAN_INTERVAL, default=scan_default): vol.All(
-                vol.Coerce(int), vol.Range(min=1, max=60)
+                vol.Coerce(int), vol.Range(min=1, max=3600)
             ),
         }
 
-        return self.async_show_form(step_id="init", data_schema=vol.Schema(options)) 
+        return self.async_show_form(step_id="init", data_schema=vol.Schema(options))

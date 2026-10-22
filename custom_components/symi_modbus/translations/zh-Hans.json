@@ -12,7 +12,8 @@
         "title": "配置 TCP 连接",
         "data": {
           "host": "主机",
-          "port": "端口"
+          "port": "端口",
+          "frame": "帧格式"
         }
       },
       "serial_pick": {
@@ -35,26 +36,26 @@
           "baudrate": "波特率",
           "bytesize": "数据位",
           "parity": "校验位",
-          "stopbits": "停止位",
-          "method": "方法"
+          "stopbits": "停止位"
         }
       },
       "slave": {
         "title": "Modbus 从站地址",
-        "description": "本连接上的从站单元号（默认 10 即 0x0A）。若要在同一 TCP 或同一串口上再添加其他从站，请再次添加本集成。",
+        "description": "填写本连接上的从站单元号（默认 10 即 0x0A）。如需在同一连接上添加更多从站，勾选后再填写下一个。",
         "data": {
-          "slave": "从站地址（十进制）"
+          "slave": "从站地址（十进制）",
+          "add_more_slaves": "再添加一个从站"
         }
       }
     },
     "error": {
       "invalid_host": "请输入有效的主机名或 IP 地址",
-      "cannot_connect": "连接失败，请检查配置",
-      "already_configured": "此从站设备已配置",
-      "invalid_serial_path": "请输入有效的串口设备路径"
+      "invalid_serial_path": "请输入有效的串口设备路径",
+      "slave_already_added": "此从站地址在本连接上已被添加",
+      "no_slaves": "请至少添加一个从站地址"
     },
     "abort": {
-      "already_configured": "此从站设备已配置"
+      "already_configured": "此连接已配置"
     }
   },
   "options": {
@@ -63,6 +64,59 @@
         "title": "Symi Modbus 选项",
         "data": {
           "scan_interval": "轮询间隔（秒）"
+        }
+      }
+    }
+  },
+  "entity": {
+    "switch": {
+      "coil": {
+        "name": "线路 {line}"
+      }
+    }
+  },
+  "services": {
+    "write_coil": {
+      "name": "写线圈",
+      "description": "向 Modbus 设备写入线圈值。",
+      "fields": {
+        "address": {
+          "name": "地址",
+          "description": "线圈地址。"
+        },
+        "slave": {
+          "name": "从站",
+          "description": "从站单元号。"
+        },
+        "state": {
+          "name": "状态",
+          "description": "要写入的值。"
+        },
+        "hub": {
+          "name": "主站",
+          "description": "设置页面显示的配置项标题。只配置了一个连接时可留空。"
+        }
+      }
+    },
+    "write_register": {
+      "name": "写寄存器",
+      "description": "写入寄存器值。本设备类型暂不支持。",
+      "fields": {
+        "address": {
+          "name": "地址",
+          "description": "寄存器地址。"
+        },
+        "value": {
+          "name": "值",
+          "description": "要写入的值。"
+        },
+        "slave": {
+          "name": "从站",
+          "description": "从站单元号。"
+        },
+        "hub": {
+          "name": "主站",
+          "description": "设置页面显示的配置项标题。"
         }
       }
     }

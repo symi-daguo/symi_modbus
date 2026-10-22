@@ -1,45 +1,57 @@
 # Symi Modbus
 
-Home Assistant custom integration for Symi Modbus relay modules over **TCP** or **serial RTU**. Each config entry creates **32 switch entities** (coils 0-31) for one slave unit on that link.
+Home Assistant custom integration for Symi Modbus relay modules, over **serial RTU** or **TCP**.
+
+One config entry describes **one Modbus master** (a serial port or a TCP endpoint) together with
+**all the slaves behind it**. Every slave becomes its own device with one switch entity per coil.
 
 ## Requirements
 
 | Item | Value |
 |------|--------|
-| Version | **1.2.1** |
-| Home Assistant | **2024.1.0** or newer (tested on 2026.5.x) |
+| Version | **2.0.0** |
+| Home Assistant | **2024.11.0** or newer (developed against 2026.10.2) |
 | Python dependency | `pyserial` (declared in `manifest.json`) |
 
 ## Features
 
-- TCP (hostname or IP) and serial RTU (`pyserial` + `serial_asyncio`).
-- Serial setup: **enumerate local ports** (USB and other TTYs), pick from list, or **manual device path**.
-- Polling interval configurable in integration **Options** (reloads entry on save).
-- Transport errors: **no repeated ERROR lines** on every poll; recovery logs once; CRC issues throttled (WARNING at most about once per minute per key).
-- Entities reflect **availability** when the link is down; they recover when communication succeeds again.
-- Branding: root `icon.png` / `logo.png` and `brand/` assets; source artwork in `icons/icon.png` (see below).
+- **Serial RTU** and **TCP**, with the frame format chosen per connection:
+  `Modbus TCP (MBAP)` or `Modbus RTU over TCP` for serial-to-ethernet gateways.
+- **One master, many slaves**: add several slave addresses to the same connection in a single
+  configuration flow. Each slave is polled on its own and gets its own device in Home Assistant.
+- **Persistent connection** with automatic reconnect. The link is kept open between requests, so
+  the device is not reset by opening the port over and over.
+- **Survives outages**: when the device reboots or the network drops, the entities turn
+  `unavailable`, the connection is rebuilt automatically and the entities recover on their own.
+- **Serial port picker**: detected ports are listed, a manual device path can be entered for
+  anything that is not listed.
+- Polling interval configurable in the integration **Options**.
+- **Quiet logging**: a failing link logs one error per outage instead of one per poll, and the
+  recovery is reported once.
 
-## HACS and validation
+## Installation
 
-- `hacs.json` is present for HACS default store / custom repository installs.
-- GitHub Actions: `.github/workflows/hacs.yaml` (HACS validation, `ignore: brands` because icons ship in the repo) and `.github/workflows/hassfest.yaml` (Home Assistant manifest/structure checks).
+**HACS:** Custom repositories → add `https://github.com/symi-daguo/symi_modbus` as Integration →
+install → restart Home Assistant.
 
-## Install
-
-**HACS:** Custom repositories → add `https://github.com/symi-daguo/symi_modbus` as Integration → install → restart Home Assistant.
-
-**Manual:** Copy `custom_components/symi_modbus` into your configuration `custom_components/` directory and restart.
+**Manual:** Copy `custom_components/symi_modbus` into your configuration `custom_components/`
+directory and restart.
 
 ## Configuration flow
 
 1. Choose **TCP** or **Serial**.
-2. **TCP:** host and port. **Serial:** pick a detected port or **manual path**, then set baud rate, data bits, parity, stop bits, RTU/ASCII.
-3. Enter **slave unit ID** (decimal; default 10 = 0x0A).
-4. One config entry is created. To add **another slave on the same TCP or serial device**, run **Add integration** again with the same connection settings and a different slave address.
+2. **TCP:** host, port and frame format. **Serial:** pick a detected port or enter a manual path,
+   then set baud rate, data bits, parity and stop bits.
+3. Enter the **slave address** (decimal, default 10 = `0x0A`). Tick *Add another slave* to add
+   more slaves on the same connection, then enter the next address.
+4. The entry is created with all slaves of that master.
+
+To use a second master (another serial port or another gateway), add the integration again. Each
+entry keeps its own connection, so the masters poll independently.
 
 ## Docker and serial
 
-Serial enumeration shows devices **inside the container**. Map host devices explicitly, for example:
+The port list shows the devices **inside the container**. Map the host devices explicitly:
 
 ```yaml
 devices:
@@ -50,19 +62,37 @@ Use the path **as seen in the container** (often `/dev/ttyUSB0`).
 
 ## Services
 
-- `symi_modbus.write_coil` – supported.
-- `symi_modbus.write_register` – not implemented for this hardware profile; calls are ignored with a debug log.
+- `symi_modbus.write_coil` – write a single coil.
+- `symi_modbus.write_register` – not supported by this device profile; the call is ignored.
 
-**`hub`:** Use the **integration entry title** shown under Settings (e.g. `Modbus TCP 0A`), not a generic placeholder.
+**`hub`:** the entry title shown in Settings (e.g. `Modbus TCP 192.168.1.10:502`). Leave it empty
+when only one connection is configured.
 
 ## Brand files
 
-Official square logo: `custom_components/symi_modbus/icons/icon.png`. Root `icon.png`, `logo.png`, and `brand/` PNGs are generated from that source for the UI and HACS. Replace `icons/icon.png` and regenerate those files if the brand changes.
+The integration ships its own brand images in `custom_components/symi_modbus/brand/`, the folder
+Home Assistant reads since 2026.3:
+
+| File | Size |
+|------|------|
+| `icon.png` / `dark_icon.png` | 256 × 256 |
+| `icon@2x.png` / `dark_icon@2x.png` | 512 × 512 |
+| `logo.png` / `dark_logo.png` | 256 high |
+| `logo@2x.png` / `dark_logo@2x.png` | 512 high |
+
+The source artwork lives in `assets/icon_source.png`. Run `python scripts/generate_brand.py` to
+regenerate every file after a brand change.
 
 ## Development
 
-- `CONTRIBUTING.md` – fork / PR workflow.
-- Code style: match Home Assistant patterns; UTF-8 sources; avoid noisy logs on steady-state failures.
+```bash
+docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
+  sh -c "pip install pytest-asyncio -q && python -m pytest tests/ -q --asyncio-mode=auto"
+```
+
+- `tests/` covers the frame encoding, the hub behaviour, the reconnect logic and the packaging.
+- `scripts/modbus_simulator.py` serves a fake Modbus slave on a TCP port or a pseudo terminal,
+  which is handy to try the integration without hardware.
 
 ## License
 
