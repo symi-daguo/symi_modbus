@@ -15,7 +15,7 @@ that belongs to it is a **subentry** that can be added, changed and removed on i
 
 | Item | Value |
 |------|--------|
-| Version | **2.2.0** |
+| Version | **2.2.3** |
 | Home Assistant | **2025.3.0** or newer (developed against 2026.10.2, verified on 2026.7.4) |
 | Python dependency | `pyserial`, `pyserial-asyncio-fast` (declared in `manifest.json`) |
 
@@ -233,6 +233,11 @@ docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
   panel side with a burst of four hundred button presses.
 
 ## Changelog
+
+### 2.2.3
+
+- The check for the programs that hold a serial port open runs in the executor now, so it does
+  not block the event loop of Home Assistant any more.
 
 ### 2.2.2
 

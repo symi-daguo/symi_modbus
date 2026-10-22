@@ -76,6 +76,7 @@ class PanelManager:
         """Open a panel bus for a panel subentry."""
         protocol = PROTOCOLS[brand]()
         connection = PanelConnection(
+            hass=self._hass,
             port=port,
             protocol=protocol,
             on_event=self._make_handler(subentry_id),

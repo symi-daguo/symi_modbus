@@ -8,6 +8,8 @@ from collections import deque
 from collections.abc import Callable
 from time import monotonic
 
+from homeassistant.core import HomeAssistant
+
 from .base import ButtonEvent, PanelProtocol
 
 try:
@@ -72,6 +74,7 @@ class PanelConnection:
     def __init__(
         self,
         *,
+        hass: HomeAssistant,
         port: str,
         protocol: PanelProtocol,
         on_event: Callable[[ButtonEvent], None],
@@ -82,6 +85,7 @@ class PanelConnection:
         on_state: Callable[[bool], None] | None = None,
     ) -> None:
         """Initialize the panel bus."""
+        self._hass = hass
         self._port = port
         self._protocol = protocol
         self._on_event = on_event
@@ -150,7 +154,11 @@ class PanelConnection:
             CONNECT_TIMEOUT,
         )
         _LOGGER.debug("Panel bus %s opened", self._port)
-        holders = serial_port_holders(str(self._port))
+        # Reading the open files of the other programs is a blocking call, so
+        # it belongs in the executor.
+        holders = await self._hass.async_add_executor_job(
+            serial_port_holders, str(self._port)
+        )
         if holders > 1:
             _LOGGER.warning(
                 "The serial port %s is open by %s programs, the bytes may be split"

@@ -436,7 +436,10 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # A serial port that is already used by another connection would
         # split the bytes between them, so it is not offered.
         used = _ports_in_use(self.hass)
-        options = _serial_port_options(ports, used, _busy_serial_ports(ports, used))
+        busy = await self.hass.async_add_executor_job(
+            _busy_serial_ports, ports, used
+        )
+        options = _serial_port_options(ports, used, busy)
         default_port: str | None = next(
             (device for device in options if device != SERIAL_PORT_MANUAL_VALUE),
             SERIAL_PORT_MANUAL_VALUE,
@@ -742,9 +745,10 @@ class PanelSubentryFlow(ConfigSubentryFlow):
         """Build the form with the serial ports that are detected."""
         ports = await self.hass.async_add_executor_job(_list_serial_ports)
         used = _ports_in_use(self.hass, self._own_subentry_id)
-        options = _serial_port_options(
-            ports, used, _busy_serial_ports(ports, used)
+        busy = await self.hass.async_add_executor_job(
+            _busy_serial_ports, ports, used
         )
+        options = _serial_port_options(ports, used, busy)
 
         current = suggested.get(CONF_PORT)
         if current and current not in options:
