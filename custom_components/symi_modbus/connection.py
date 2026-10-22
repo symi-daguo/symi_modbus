@@ -21,7 +21,9 @@ from .frames import decode_response, expected_response_length
 _LOGGER = logging.getLogger(__name__)
 
 CONNECT_TIMEOUT = 5
-READ_TIMEOUT = 2
+# A Modbus RTU slave answers within a few milliseconds on a 9600 baud line.
+# A short timeout keeps one silent slave from holding up the others.
+READ_TIMEOUT = 0.5
 SERIAL_POST_WRITE_DELAY = 0.02
 MAX_FRAME_SIZE = 260
 

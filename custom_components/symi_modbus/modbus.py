@@ -49,7 +49,16 @@ CRC_WARN_INTERVAL = 60.0
 
 # Callbacks receive (states, slave).
 StateCallback = Callable[[dict[int, bool], int], None]
-AvailabilityCallback = Callable[[bool], None]
+# Callbacks receive (available, slave).
+AvailabilityCallback = Callable[[bool, int], None]
+
+# A slave that stops answering is skipped for a while, so it does not spend
+# the read timeout of every round. The longer it stays silent, the longer it
+# is left alone.
+FAILURES_BEFORE_SKIP = 2
+MAX_SKIP_ROUNDS = 60
+# The shortest time between two polls of the same slave.
+MIN_POLL_INTERVAL = 0.1
 
 
 class ModbusHub:
@@ -84,8 +93,13 @@ class ModbusHub:
         self._slave_data: dict[int, dict[int, bool]] = {}
         self._unsub_poll = None
         self._in_error = False
-        self._link_was_down = False
-        self._comm_ok = True
+        self._link_was_down: dict[int, bool] = {}
+        self._slave_available: dict[int, bool] = {}
+        self._slave_failures: dict[int, int] = {}
+        self._slave_skip_until: dict[int, int] = {}
+        self._poll_order: list[int] = []
+        self._poll_index = 0
+        self._round = 0
         self._crc_last_log: dict[str, float] = {}
         self._transaction_id = 0
 
@@ -153,7 +167,7 @@ class ModbusHub:
             pass
 
     def add_availability_callback(self, callback_func: AvailabilityCallback) -> None:
-        """Register callback for transport availability (True = link up)."""
+        """Register callback for slave availability (True = link up)."""
         self._availability_callbacks.append(callback_func)
 
     def remove_availability_callback(self, callback_func: AvailabilityCallback) -> None:
@@ -163,14 +177,18 @@ class ModbusHub:
         except ValueError:
             pass
 
-    def _notify_availability(self, available: bool) -> None:
-        """Notify listeners when the transport availability changes."""
-        if self._comm_ok == available:
+    def _notify_availability(self, available: bool, slave: int) -> None:
+        """Notify listeners when the availability of one slave changes.
+
+        The availability is tracked per slave, so a slave that stops
+        answering does not take the other slaves down with it.
+        """
+        if self._slave_available.get(slave) == available:
             return
-        self._comm_ok = available
+        self._slave_available[slave] = available
         for callback in self._availability_callbacks:
             try:
-                callback(available)
+                callback(available, slave)
             except Exception:  # noqa: BLE001
                 _LOGGER.exception("Availability callback failed")
 
@@ -183,16 +201,20 @@ class ModbusHub:
                 _LOGGER.info("%s (%s)", error_text, self._name)
             self._in_error = error_state
 
-    def _note_link_up(self) -> None:
-        """Report that the link recovered, once per outage."""
-        if self._link_was_down:
-            _LOGGER.info("Connection restored (%s)", self._name)
-            self._link_was_down = False
+    def _note_link_up(self, slave: int) -> None:
+        """Report that a slave answers again, once per outage."""
+        if self._link_was_down.get(slave):
+            _LOGGER.info(
+                "Slave %s on %s answers again", slave, self._name
+            )
+            self._link_was_down[slave] = False
 
-    def _note_link_down(self, reason: str) -> None:
-        """Report that the link failed, once per outage."""
-        self._link_was_down = True
-        self._log_error(reason)
+    def _note_link_down(self, reason: str, slave: int) -> None:
+        """Report that a slave stopped answering, once per outage."""
+        if not self._link_was_down.get(slave):
+            _LOGGER.error("%s (%s)", reason, self._name)
+            self._link_was_down[slave] = True
+        self._in_error = True
 
     def _throttled_warning(self, key: str, message: str) -> None:
         """Log a warning at most once per minute per key."""
@@ -206,6 +228,8 @@ class ModbusHub:
         """Register a slave unit and the coil range to poll for it."""
         coil_count = int(count if count is not None else self._coil_count)
         self._slaves[slave] = {"start": int(start), "count": coil_count}
+        if slave not in self._poll_order:
+            self._poll_order.append(slave)
         _LOGGER.debug(
             "Registered slave %s, coils %s-%s",
             slave,
@@ -234,9 +258,21 @@ class ModbusHub:
         self._unsub_poll = async_track_time_interval(
             self._hass,
             self.async_poll_slaves,
-            timedelta(seconds=self._scan_interval),
+            self._poll_interval(),
         )
         return True
+
+    def _poll_interval(self) -> timedelta:
+        """Return the time between two polls of the same slave.
+
+        The scan interval is the period of one round over all slaves, so the
+        slaves of a master share it. Five slaves with a five second interval
+        are asked every second, one slave with the same interval every five
+        seconds.
+        """
+        slaves = max(len(self._slaves), 1)
+        seconds = max(self._scan_interval / slaves, MIN_POLL_INTERVAL)
+        return timedelta(seconds=seconds)
 
     def _next_transaction_id(self) -> int:
         """Return an incrementing transaction id for MBAP frames."""
@@ -259,12 +295,14 @@ class ModbusHub:
         )
         payload = await self._connection.async_request(request, FUNCTION_READ_COILS)
         if payload is None:
-            self._notify_availability(False)
-            self._note_link_down("No response from device")
+            self._notify_availability(False, slave)
+            self._note_link_down(
+                f"No response from slave {slave} on {self._name}", slave
+            )
             return None
 
-        self._note_link_up()
-        self._notify_availability(True)
+        self._note_link_up(slave)
+        self._notify_availability(True, slave)
 
         # Read-coils payload: byte count followed by the packed bits.
         if not payload:
@@ -287,21 +325,65 @@ class ModbusHub:
                 _LOGGER.exception("State callback failed")
 
     async def async_poll_slaves(self, now: Optional[object] = None) -> None:
-        """Poll every registered slave, isolating failures per slave."""
-        for slave in list(self._slaves):
-            try:
-                states = await self.async_req_state(slave)
-            except Exception:  # noqa: BLE001
-                _LOGGER.exception("Polling slave %s failed", slave)
+        """Poll the next slave of this master.
+
+        The slaves take turns, so a slave that stops answering only costs its
+        own slot and the other slaves keep their own timing. A slave that
+        stays silent is skipped for a while, so it does not spend the read
+        timeout of every round.
+        """
+        self._round += 1
+        slave = self._next_slave()
+        if slave is None:
+            return
+
+        try:
+            states = await self.async_req_state(slave)
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("Polling slave %s failed", slave)
+            return
+
+        if states is None:
+            self._register_failure(slave)
+            return
+
+        self._clear_failure(slave)
+        self.handle_state(states, slave)
+
+        if self._delay > 0:
+            await asyncio.sleep(self._delay / 1000)
+
+    def _next_slave(self) -> Optional[int]:
+        """Return the next slave that is due for a poll."""
+        if not self._slaves:
+            return None
+
+        for _ in range(len(self._slaves)):
+            slave = self._poll_order[self._poll_index % len(self._poll_order)]
+            self._poll_index += 1
+            if self._slave_skip_until.get(slave, 0) > self._round:
                 continue
+            return slave
+        return None
 
-            if states is None:
-                continue
+    def _register_failure(self, slave: int) -> None:
+        """Count a failed poll and skip the slave for a while.
 
-            self.handle_state(states, slave)
+        The skip grows with the number of failures, so a slave that stays
+        silent is only tried every few rounds and the other slaves keep
+        their own timing.
+        """
+        failures = self._slave_failures.get(slave, 0) + 1
+        self._slave_failures[slave] = failures
+        if failures < FAILURES_BEFORE_SKIP:
+            return
+        rounds = min(2 ** (failures - FAILURES_BEFORE_SKIP + 1), MAX_SKIP_ROUNDS)
+        self._slave_skip_until[slave] = self._round + rounds
 
-            if self._delay > 0:
-                await asyncio.sleep(self._delay / 1000)
+    def _clear_failure(self, slave: int) -> None:
+        """Forget the failures of a slave that answers again."""
+        if self._slave_failures.pop(slave, None) is not None:
+            self._slave_skip_until.pop(slave, None)
 
     async def write_coil(self, slave: int, address: int, value: bool) -> bool:
         """Write a single coil on a slave."""
@@ -314,12 +396,14 @@ class ModbusHub:
         )
         payload = await self._connection.async_request(request, FUNCTION_WRITE_SINGLE_COIL)
         if payload is None:
-            self._notify_availability(False)
-            self._note_link_down("No response from device")
+            self._notify_availability(False, slave)
+            self._note_link_down(
+                f"No response from slave {slave} on {self._name}", slave
+            )
             return False
 
-        self._note_link_up()
-        self._notify_availability(True)
+        self._note_link_up(slave)
+        self._notify_availability(True, slave)
 
         # Reflect the new value locally; the next poll confirms it.
         if slave in self._slave_data and address in self._slave_data[slave]:
@@ -339,12 +423,14 @@ class ModbusHub:
         )
         payload = await self._connection.async_request(request, FUNCTION_WRITE_MULTIPLE_COILS)
         if payload is None:
-            self._notify_availability(False)
-            self._note_link_down("No response from device")
+            self._notify_availability(False, slave)
+            self._note_link_down(
+                f"No response from slave {slave} on {self._name}", slave
+            )
             return False
 
-        self._note_link_up()
-        self._notify_availability(True)
+        self._note_link_up(slave)
+        self._notify_availability(True, slave)
 
         if slave in self._slave_data:
             for offset, value in enumerate(values):

@@ -14,11 +14,11 @@ CONF_SLAVE: Final = "slave"
 CONF_TYPE: Final = "type"
 
 DEFAULT_NAME: Final = "Symi Modbus"
-DEFAULT_SCAN_INTERVAL: Final = 5
+DEFAULT_SCAN_INTERVAL: Final = 1
 DEFAULT_TCP_PORT: Final = 502
 DEFAULT_SLAVE: Final = 0x0A
 DEFAULT_DELAY_MS: Final = 0
-DEFAULT_COIL_COUNT: Final = 16
+DEFAULT_COIL_COUNT: Final = 32
 MAX_COIL_COUNT: Final = 64
 
 # Connection types

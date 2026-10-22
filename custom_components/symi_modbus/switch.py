@@ -71,11 +71,15 @@ class ModbusSwitch(SwitchEntity):
         self._address = address
         self._line_number = line_number
         self._attr_unique_id = unique_id
-        self._attr_translation_placeholders = {"line": f"{line_number:02d}"}
+        self._attr_translation_placeholders = {
+            "slave": f"{slave:02X}",
+            "line": f"{line_number:02d}",
+        }
         if device_class is not None:
             self._attr_device_class = device_class
         self._is_on = False
-        self._attr_available = True
+        # The slave has not answered yet, so the state is not confirmed.
+        self._attr_available = False
 
         self._hub.add_callback(self.async_on_state_change)
         self._hub.add_availability_callback(self._on_hub_available)
@@ -87,8 +91,8 @@ class ModbusSwitch(SwitchEntity):
         return DeviceInfo(
             # The entry id keeps the device stable even when the title changes.
             identifiers={(DOMAIN, f"{self._hub.entry_id}_{self._slave}")},
-            # The link and the slave id tell the devices apart.
-            name=f"{conn} {self._hub.endpoint} 从站 {self._slave:02X}",
+            # The link tells the masters apart, the slave id is in the entity name.
+            name=f"{conn} {self._hub.endpoint}",
             manufacturer="Symi",
             model="Modbus Relay Module",
         )
@@ -99,8 +103,10 @@ class ModbusSwitch(SwitchEntity):
         return self._is_on
 
     @callback
-    def _on_hub_available(self, available: bool) -> None:
-        """Mirror transport availability on the entity."""
+    def _on_hub_available(self, available: bool, slave: int) -> None:
+        """Mirror the availability of this slave on the entity."""
+        if slave != self._slave:
+            return
         if self._attr_available == available:
             return
         self._attr_available = available
@@ -132,8 +138,7 @@ class ModbusSwitch(SwitchEntity):
         new_state = data[self._address]
         changed = new_state != self._is_on
         self._is_on = new_state
-        if changed or not self._attr_available:
-            self._attr_available = True
+        if changed:
             _LOGGER.debug(
                 "Coil %s of slave %s is %s", self._address, self._slave, new_state
             )
@@ -144,4 +149,3 @@ class ModbusSwitch(SwitchEntity):
         state = self._hub.get_state(self._slave, self._address)
         if state is not None:
             self._is_on = state
-            self._attr_available = True

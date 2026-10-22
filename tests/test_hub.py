@@ -52,6 +52,10 @@ class FakeHass:
         """Not used in these tests."""
         raise NotImplementedError
 
+    def async_run_hass_job(self, job, *args, **kwargs):
+        """Run a job the way Home Assistant does."""
+        return job(*args, **kwargs)
+
     async def async_add_executor_job(self, func, *args):
         """Run a blocking function inline."""
         return func(*args)
@@ -71,6 +75,8 @@ class FakeDevice:
         self.frame = FRAME_RTU
         # When muted the device receives requests but never answers.
         self.mute = False
+        # Slaves that stay silent while the others keep answering.
+        self.mute_slaves: set[int] = set()
 
     def handle(self, data: bytes) -> bytes | None:
         """Answer one RTU request."""
@@ -82,6 +88,8 @@ class FakeDevice:
         slave = data[0]
         function = data[1]
         if slave not in self.coils:
+            return None
+        if slave in self.mute_slaves:
             return None
 
         if function == FUNCTION_READ_COILS:
@@ -182,6 +190,8 @@ async def test_hub_polls_every_slave() -> None:
     hub.register_slaves(entry.data[CONF_SLAVES])
 
     try:
+        # The slaves take turns, so two polls cover both of them.
+        await hub.async_poll_slaves()
         await hub.async_poll_slaves()
         assert device.requests == 2
         assert set(hub._slave_data) == {10, 11}
@@ -219,6 +229,7 @@ async def test_hub_survives_a_failing_slave() -> None:
 
     try:
         await hub.async_poll_slaves()
+        await hub.async_poll_slaves()
         # The responding slave still produced state.
         assert 10 in hub._slave_data
     finally:
@@ -255,23 +266,157 @@ async def test_hub_reconnects_after_the_link_drops(monkeypatch: pytest.MonkeyPat
     await hub.async_setup()
     hub.register_slaves(entry.data[CONF_SLAVES])
 
-    availability: list[bool] = []
-    hub.add_availability_callback(availability.append)
+    availability: list[tuple[bool, int]] = []
+    hub.add_availability_callback(
+        lambda available, slave: availability.append((available, slave))
+    )
 
     try:
         # The device is muted, so the first poll times out.
         await hub.async_poll_slaves()
         assert hub._slave_data == {}
-        assert availability == [False]
+        assert availability == [(False, 10)]
 
         # The device answers again on the same connection.
         device.mute = False
         await hub.async_poll_slaves()
         assert 10 in hub._slave_data
-        assert availability == [False, True]
+        assert availability == [(False, 10), (True, 10)]
 
         # The hub keeps the connection open between polls.
         assert hub._connection.is_connected
+    finally:
+        await hub.async_stop()
+        server.close()
+
+
+@pytest.mark.asyncio
+async def test_the_slaves_share_the_scan_interval() -> None:
+    """The scan interval is the period of one round over all slaves.
+
+    Five slaves with a five second interval are each asked every second, one
+    slave with the same interval every five seconds.
+    """
+    for slaves, interval, expected in ((5, 5, 1.0), (1, 5, 5.0), (3, 3, 1.0)):
+        entry = FakeConfigEntry(
+            {
+                CONF_TYPE: CONF_TCP,
+                CONF_NAME: "test",
+                CONF_SCAN_INTERVAL: interval,
+                CONF_COIL_COUNT: 4,
+                CONF_SLAVES: {
+                    str(10 + index): {"start": 0, "count": 4} for index in range(slaves)
+                },
+                CONF_HOST: "127.0.0.1",
+                CONF_PORT: 502,
+                CONF_FRAME: FRAME_RTU,
+            }
+        )
+        hub = ModbusHub(FakeHass(), entry)
+        await hub.async_setup()
+        assert hub._poll_interval().total_seconds() == pytest.approx(expected)
+        await hub.async_stop()
+
+
+@pytest.mark.asyncio
+async def test_the_slaves_take_turns() -> None:
+    """Every poll asks the next slave of the master."""
+    device = FakeDevice({10: 4, 11: 4, 12: 4})
+    server = await _start_server(device)
+    port = server.sockets[0].getsockname()[1]
+
+    entry = FakeConfigEntry(
+        {
+            CONF_TYPE: CONF_TCP,
+            CONF_NAME: "test",
+            CONF_SCAN_INTERVAL: 3,
+            CONF_COIL_COUNT: 4,
+            CONF_SLAVES: {
+                "10": {"start": 0, "count": 4},
+                "11": {"start": 0, "count": 4},
+                "12": {"start": 0, "count": 4},
+            },
+            CONF_HOST: "127.0.0.1",
+            CONF_PORT: port,
+            CONF_FRAME: FRAME_RTU,
+        }
+    )
+    hub = ModbusHub(FakeHass(), entry)
+    await hub.async_setup()
+    hub.register_slaves(entry.data[CONF_SLAVES])
+
+    try:
+        asked: list[int] = []
+        for _ in range(6):
+            await hub.async_poll_slaves()
+            asked.append(hub._poll_order[(hub._poll_index - 1) % 3])
+        assert asked == [10, 11, 12, 10, 11, 12]
+    finally:
+        await hub.async_stop()
+        server.close()
+
+
+@pytest.mark.asyncio
+async def test_a_silent_slave_does_not_affect_the_others() -> None:
+    """A slave that stops answering does not take the other slaves down.
+
+    The availability is tracked per slave, so a silent slave only makes its
+    own entities unavailable.
+    """
+    device = FakeDevice({10: 4, 11: 4})
+    server = await _start_server(device)
+    port = server.sockets[0].getsockname()[1]
+
+    entry = FakeConfigEntry(
+        {
+            CONF_TYPE: CONF_TCP,
+            CONF_NAME: "test",
+            CONF_SCAN_INTERVAL: DEFAULT_SCAN_INTERVAL,
+            CONF_COIL_COUNT: 4,
+            CONF_SLAVES: {"10": {"start": 0, "count": 4}, "11": {"start": 0, "count": 4}},
+            CONF_HOST: "127.0.0.1",
+            CONF_PORT: port,
+            CONF_FRAME: FRAME_RTU,
+        }
+    )
+    hub = ModbusHub(FakeHass(), entry)
+    await hub.async_setup()
+    hub.register_slaves(entry.data[CONF_SLAVES])
+
+    availability: list[tuple[bool, int]] = []
+    hub.add_availability_callback(lambda available, slave: availability.append((available, slave)))
+
+    try:
+        # Both slaves answer, one after the other.
+        for _ in range(2):
+            await hub.async_poll_slaves()
+        assert set(hub._slave_data) == {10, 11}
+        assert availability == [(True, 10), (True, 11)]
+
+        # The device stops answering for slave 11 only.
+        device.mute_slaves = {11}
+        hub._slave_data.clear()
+        availability.clear()
+
+        for _ in range(2):
+            await hub.async_poll_slaves()
+        # Only the silent slave is marked unavailable.
+        assert (False, 11) in availability
+        assert (False, 10) not in availability
+        assert 10 in hub._slave_data
+        assert 11 not in hub._slave_data
+
+        # The silent slave is skipped after a few failures.
+        for _ in range(4):
+            await hub.async_poll_slaves()
+        assert hub._slave_skip_until.get(11, 0) > hub._round
+
+        # The device comes back.
+        device.mute_slaves = set()
+        hub._slave_data.clear()
+        for _ in range(6):
+            await hub.async_poll_slaves()
+        assert set(hub._slave_data) == {10, 11}
     finally:
         await hub.async_stop()
         server.close()

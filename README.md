@@ -26,11 +26,35 @@ One config entry describes **one Modbus master** (a serial port or a TCP endpoin
   the device is not reset by opening the port over and over.
 - **Survives outages**: when the device reboots or the network drops, the entities turn
   `unavailable`, the connection is rebuilt automatically and the entities recover on their own.
+- **One silent slave does not affect the others**: the availability is tracked per slave, and a
+  slave that stops answering is skipped for a few rounds instead of holding up the bus.
 - **Serial port picker**: detected ports are listed, a manual device path can be entered for
   anything that is not listed.
 - Polling interval configurable in the integration **Options**.
 - **Quiet logging**: a failing link logs one error per outage instead of one per poll, and the
   recovery is reported once.
+
+## Polling
+
+The scan interval is the period of **one round over all slaves of a master**, and it can be
+changed in the integration **Options**. The default is one second.
+
+The slaves take turns, so the interval is shared between them:
+
+| Slaves on the master | Each slave is asked |
+|----------------------|--------------------|
+| 1                    | every 1 second      |
+| 5                    | every 200 ms        |
+
+A whole round of five slaves therefore finishes inside one second, and a single slave is
+asked once per second. The number of slaves per master is not limited.
+
+Every slave is read with **one** request that returns all of its coils at once, a 32 coil
+device is read with a single frame.
+
+A slave that does not answer times out after 0.5 s. It is then skipped for a while, and the
+skip grows while it stays silent, so it cannot spend the timeout of every round. Its entities
+turn `unavailable` on their own, the other slaves keep their own timing and stay available.
 
 ## Installation
 
@@ -54,8 +78,8 @@ directory and restart.
 To use a second master (another serial port or another gateway), add the integration again. Each
 entry keeps its own connection, so the masters poll independently.
 
-The devices show up as `Serial /dev/ttyUSB0 从站 0A`, so a device can be told apart by its link
-and by its slave address.
+The devices show up as `Serial /dev/ttyUSB0`, and their entities carry the slave address, for
+example `0A 线路 01`, so a device can be told apart by its link and by its slave address.
 
 ## Docker and serial
 

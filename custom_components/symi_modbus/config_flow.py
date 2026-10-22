@@ -351,8 +351,10 @@ class SymiModbusOptionsFlow(config_entries.OptionsFlow):
             entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
         )
         options = {
-            vol.Optional(CONF_SCAN_INTERVAL, default=scan_default): vol.All(
-                vol.Coerce(int), vol.Range(min=1, max=3600)
+            vol.Optional(CONF_SCAN_INTERVAL, default=scan_default): NumberSelector(
+                NumberSelectorConfig(
+                    min=1, max=3600, step=1, mode=NumberSelectorMode.BOX
+                )
             ),
         }
 
