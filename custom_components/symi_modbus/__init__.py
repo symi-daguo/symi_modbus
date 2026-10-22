@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from typing import TypeAlias
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
@@ -27,8 +28,8 @@ PLATFORMS: list[Platform] = [Platform.SWITCH]
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
-type SymiModbusConfigEntry = ConfigEntry[ModbusHub]
-
+# The hub of an entry is kept in its runtime data.
+SymiModbusConfigEntry: TypeAlias = ConfigEntry
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Reload the config entry when options change (e.g. scan interval)."""

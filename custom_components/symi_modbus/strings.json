@@ -6,7 +6,8 @@
         "title": "Select connection type",
         "data": {
           "type": "Connection Type"
-        }
+        },
+        "description": "Pick how the Modbus master is reached. A serial port always speaks RTU, a TCP gateway speaks Modbus TCP or RTU over TCP."
       },
       "tcp": {
         "title": "Configure TCP connection",
@@ -14,18 +15,19 @@
           "host": "Host",
           "port": "Port",
           "frame": "Frame format"
-        }
+        },
+        "description": "The host and port of the Modbus gateway. The frame format must match the gateway, Modbus TCP is the default and RTU over TCP is for serial to ethernet gateways."
       },
       "serial_pick": {
         "title": "Select serial port",
-        "description": "Ports are detected on the system running Home Assistant. Choose a device or manual entry.",
+        "description": "The ports are detected on the system running Home Assistant. Choose a device or enter the path manually.",
         "data": {
           "port": "Serial device"
         }
       },
       "serial_manual": {
         "title": "Serial device path",
-        "description": "Enter the device path visible to Home Assistant (e.g. /dev/ttyUSB0).",
+        "description": "The device path as Home Assistant sees it, for example /dev/ttyUSB0, /dev/ttyS0 or COM3. In Docker the host device has to be mapped into the container.",
         "data": {
           "port": "Device path"
         }
@@ -37,11 +39,12 @@
           "bytesize": "Bytesize",
           "parity": "Parity",
           "stopbits": "Stopbits"
-        }
+        },
+        "description": "These must match the device. The defaults are 9600 baud, 8 data bits, no parity and one stop bit."
       },
       "slave": {
         "title": "Modbus slave address",
-        "description": "Enter the unit ID of the device on this connection (default 10 = 0x0A). Tick the box to add another slave on the same connection.",
+        "description": "The unit ID of the device on this connection, 10 is 0x0A. The coil count is the number of coils the device has, a 32 channel module uses 32.",
         "data": {
           "slave": "Slave address (decimal)",
           "coil_count": "Coil count",

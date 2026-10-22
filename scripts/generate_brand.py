@@ -30,7 +30,7 @@ ICON_SIZE = 256
 LOGO_HEIGHT = 256
 
 # The corner radius as a share of the shorter side.
-CORNER_RADIUS = 0.16
+CORNER_RADIUS = 0.26
 
 
 def _flatten(image: Image.Image, background: tuple[int, int, int, int]) -> Image.Image:

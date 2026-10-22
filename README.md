@@ -9,8 +9,8 @@ One config entry describes **one Modbus master** (a serial port or a TCP endpoin
 
 | Item | Value |
 |------|--------|
-| Version | **2.1.0** |
-| Home Assistant | **2024.11.0** or newer (developed against 2026.10.2) |
+| Version | **2.1.1** |
+| Home Assistant | **2024.6.0** or newer (developed against 2026.10.2, verified on 2026.7.4 and 2026.9.1) |
 | Python dependency | `pyserial`, `pyserial-asyncio-fast` (declared in `manifest.json`) |
 
 ## Features
@@ -165,6 +165,15 @@ docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
   timing of every round, the availability per slave and the memory growth.
 
 ## Changelog
+
+### 2.1.1
+
+- Fixes the configuration wizard, which failed with a 500 error because the form was shown with a
+  keyword that Home Assistant does not accept. The meaning of the fields is now part of the step
+  descriptions.
+- The brand images get a larger corner radius.
+- The lowest supported Home Assistant version is 2024.6.0, the first release with the runtime
+  data of a config entry.
 
 ### 2.1.0
 
