@@ -43,8 +43,26 @@ from .const import (
     FRAME_RTU,
     SERIAL_PORT_MANUAL_VALUE,
 )
+from .connection import ModbusConnection
+from .frames import FUNCTION_READ_COILS, build_read_request
 
 _LOGGER = logging.getLogger(__name__)
+
+# The descriptions shown below every field of the config flow.
+DATA_DESCRIPTIONS = {
+    CONF_TYPE: "The kind of connection to the Modbus master.",
+    CONF_HOST: "The host name or IP address of the Modbus gateway.",
+    CONF_PORT: "The port of the Modbus gateway.",
+    CONF_FRAME: "The frame format the gateway speaks.",
+    CONF_BAUDRATE: "The speed of the serial line in baud.",
+    CONF_BYTESIZE: "The number of data bits of the serial line.",
+    CONF_PARITY: "The parity of the serial line.",
+    CONF_STOPBITS: "The number of stop bits of the serial line.",
+    CONF_SLAVE: "The unit ID of the device on this connection.",
+    CONF_COIL_COUNT: "The number of coils the device has.",
+    ADD_MORE_SLAVES: "Add another device on the same connection.",
+    CONF_SCAN_INTERVAL: "The period of one round over all slaves of this master.",
+}
 
 CONNECTION_TYPE_SCHEMA = vol.Schema(
     {
@@ -162,6 +180,7 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="user",
             data_schema=CONNECTION_TYPE_SCHEMA,
+            data_description=DATA_DESCRIPTIONS,
         )
 
     async def async_step_tcp(self, user_input: dict | None = None) -> config_entries.ConfigFlowResult:
@@ -178,6 +197,7 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="tcp",
             data_schema=TCP_CONNECTION_SCHEMA,
+            data_description=DATA_DESCRIPTIONS,
             errors=errors,
         )
 
@@ -232,6 +252,7 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="serial_manual",
             data_schema=SERIAL_MANUAL_PATH_SCHEMA,
+            data_description=DATA_DESCRIPTIONS,
             errors=errors,
         )
 
@@ -248,6 +269,7 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="serial_params",
             data_schema=SERIAL_PARAMS_SCHEMA,
+            data_description=DATA_DESCRIPTIONS,
         )
 
     async def async_step_slave(self, user_input: dict | None = None) -> config_entries.ConfigFlowResult:
@@ -263,6 +285,7 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return self.async_show_form(
                     step_id="slave",
                     data_schema=self._slave_schema(user_input),
+                    data_description=DATA_DESCRIPTIONS,
                     errors={"base": "slave_already_added"},
                 )
             self._slaves[slave] = {"start": 0, "count": count}
@@ -274,6 +297,7 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="slave",
             data_schema=self._slave_schema(),
+            data_description=DATA_DESCRIPTIONS,
         )
 
     def _slave_schema(self, user_input: dict | None = None) -> vol.Schema:
@@ -300,6 +324,7 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return self.async_show_form(
                 step_id="slave",
                 data_schema=self._slave_schema(),
+                data_description=DATA_DESCRIPTIONS,
                 errors={"base": "no_slaves"},
             )
 
@@ -334,7 +359,48 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             **self._connection_data,
         }
 
+        if not await self._async_test_connection(entry_data):
+            return self.async_show_form(
+                step_id="slave",
+                data_schema=self._slave_schema(),
+                data_description=DATA_DESCRIPTIONS,
+                errors={"base": "cannot_connect"},
+            )
+
         return self.async_create_entry(title=name, data=entry_data)
+
+    async def _async_test_connection(self, entry_data: dict) -> bool:
+        """Ask the first slave for its coils before the entry is created."""
+        slave = int(next(iter(entry_data[CONF_SLAVES])))
+        options = entry_data[CONF_SLAVES][str(slave)]
+
+        connection = ModbusConnection(
+            connection_type=entry_data[CONF_TYPE],
+            host=entry_data.get(CONF_HOST),
+            port=entry_data[CONF_PORT],
+            baudrate=int(entry_data.get(CONF_BAUDRATE, 9600)),
+            bytesize=int(entry_data.get(CONF_BYTESIZE, 8)),
+            parity=str(entry_data.get(CONF_PARITY, "N")),
+            stopbits=int(entry_data.get(CONF_STOPBITS, 1)),
+            frame=entry_data[CONF_FRAME],
+        )
+
+        try:
+            request = build_read_request(
+                slave,
+                FUNCTION_READ_COILS,
+                int(options.get("start", 0)),
+                int(options.get("count", DEFAULT_COIL_COUNT)),
+                entry_data[CONF_FRAME],
+            )
+            payload = await connection.async_request(request, FUNCTION_READ_COILS)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Connection test failed", exc_info=True)
+            return False
+        finally:
+            await connection.async_close()
+
+        return payload is not None
 
 
 class SymiModbusOptionsFlow(config_entries.OptionsFlow):
@@ -358,4 +424,8 @@ class SymiModbusOptionsFlow(config_entries.OptionsFlow):
             ),
         }
 
-        return self.async_show_form(step_id="init", data_schema=vol.Schema(options))
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(options),
+            data_description=DATA_DESCRIPTIONS,
+        )

@@ -92,7 +92,6 @@ class ModbusHub:
         self._slaves: dict[int, dict] = {}
         self._slave_data: dict[int, dict[int, bool]] = {}
         self._unsub_poll = None
-        self._in_error = False
         self._link_was_down: dict[int, bool] = {}
         self._slave_available: dict[int, bool] = {}
         self._slave_failures: dict[int, int] = {}
@@ -200,15 +199,6 @@ class ModbusHub:
             except Exception:  # noqa: BLE001
                 _LOGGER.exception("Availability callback failed")
 
-    def _log_error(self, error_text: str, error_state: bool = True) -> None:
-        """Log error transitions without repeating the same message every poll."""
-        if self._in_error != error_state:
-            if error_state:
-                _LOGGER.error("%s (%s)", error_text, self._name)
-            else:
-                _LOGGER.info("%s (%s)", error_text, self._name)
-            self._in_error = error_state
-
     def _note_link_up(self, slave: int) -> None:
         """Report that a slave answers again, once per outage."""
         if self._link_was_down.get(slave):
@@ -218,11 +208,14 @@ class ModbusHub:
             self._link_was_down[slave] = False
 
     def _note_link_down(self, reason: str, slave: int) -> None:
-        """Report that a slave stopped answering, once per outage."""
+        """Report that a slave stopped answering, once per outage.
+
+        Home Assistant asks for this at the info level, so the log keeps the
+        moment of the outage visible without filling the log with noise.
+        """
         if not self._link_was_down.get(slave):
-            _LOGGER.error("%s (%s)", reason, self._name)
+            _LOGGER.info("%s (%s)", reason, self._name)
             self._link_was_down[slave] = True
-        self._in_error = True
 
     def _throttled_warning(self, key: str, message: str) -> None:
         """Log a warning at most once per minute per key."""

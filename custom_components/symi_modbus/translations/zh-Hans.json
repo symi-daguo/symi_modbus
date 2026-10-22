@@ -53,7 +53,8 @@
       "invalid_host": "请输入有效的主机名或 IP 地址",
       "invalid_serial_path": "请输入有效的串口设备路径",
       "slave_already_added": "此从站地址在本连接上已被添加",
-      "no_slaves": "请至少添加一个从站地址"
+      "no_slaves": "请至少添加一个从站地址",
+      "cannot_connect": "连接失败，请检查串口参数或从站地址"
     },
     "abort": {
       "already_configured": "此连接已配置"

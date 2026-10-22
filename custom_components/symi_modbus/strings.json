@@ -51,9 +51,10 @@
     },
     "error": {
       "invalid_host": "Enter a valid host name or IP address",
-      "invalid_serial_path": "Enter a non-empty serial device path",
+      "invalid_serial_path": "Enter a valid serial device path",
       "slave_already_added": "This slave address is already used on this connection",
-      "no_slaves": "Add at least one slave address"
+      "no_slaves": "Add at least one slave address",
+      "cannot_connect": "Cannot connect, check the serial settings or the slave address"
     },
     "abort": {
       "already_configured": "This connection is already configured"

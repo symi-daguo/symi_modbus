@@ -27,6 +27,8 @@ PLATFORMS: list[Platform] = [Platform.SWITCH]
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
+type SymiModbusConfigEntry = ConfigEntry[ModbusHub]
+
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Reload the config entry when options change (e.g. scan interval)."""
@@ -36,12 +38,11 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Set up the Symi Modbus component."""
     _LOGGER.debug("Symi Modbus component setup, domain=%s", DOMAIN)
-    hass.data.setdefault(DOMAIN, {})
     register_services(hass)
     return True
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: SymiModbusConfigEntry) -> bool:
     """Set up Symi Modbus from a config entry."""
     _LOGGER.debug("Symi Modbus setting up entry %s", entry.entry_id)
     hub = ModbusHub(hass, entry)
@@ -49,7 +50,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if not await hub.async_setup():
         return False
 
-    hass.data[DOMAIN][entry.entry_id] = hub
+    entry.runtime_data = hub
     _LOGGER.debug("Symi Modbus forwarding platforms for %s", entry.entry_id)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -60,15 +61,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: SymiModbusConfigEntry) -> bool:
     """Unload a config entry."""
-    hub: ModbusHub | None = hass.data[DOMAIN].get(entry.entry_id)
+    hub: ModbusHub | None = entry.runtime_data
 
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
     if unload_ok and hub is not None:
         await hub.async_stop()
-        hass.data[DOMAIN].pop(entry.entry_id, None)
 
     return unload_ok
 
@@ -95,7 +95,11 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 def _find_hub(hass: HomeAssistant, hub_name: str | None) -> ModbusHub | None:
     """Find the hub matching an entry title, or the only hub when unset."""
-    hubs = [hub for hub in hass.data.get(DOMAIN, {}).values() if isinstance(hub, ModbusHub)]
+    hubs = [
+        entry.runtime_data
+        for entry in hass.config_entries.async_entries(DOMAIN)
+        if isinstance(entry.runtime_data, ModbusHub)
+    ]
     if not hubs:
         return None
     if not hub_name:

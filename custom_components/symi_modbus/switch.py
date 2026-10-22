@@ -15,6 +15,9 @@ from .modbus import ModbusHub
 
 _LOGGER = logging.getLogger(__name__)
 
+# The slaves share one serial line, so they are polled one after the other.
+PARALLEL_UPDATES = 0
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -22,7 +25,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the Modbus switch entities for every slave of this master."""
-    hub: ModbusHub = hass.data[DOMAIN][config_entry.entry_id]
+    hub: ModbusHub = config_entry.runtime_data
 
     entities: list[ModbusSwitch] = []
     slaves = config_entry.data.get(CONF_SLAVES, {})

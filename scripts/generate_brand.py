@@ -8,15 +8,16 @@ Produces the eight files the Home Assistant brands proxy expects inside
 * ``dark_icon.png`` / ``dark_icon@2x.png``
 * ``dark_logo.png`` / ``dark_logo@2x.png``
 
-The whole artwork is scaled to the target size, nothing is cut off. The dark
-variants are the same artwork on a dark background.
+The whole artwork is scaled to the target size, nothing is cut off, and the
+corners are rounded so the images sit nicely in the Home Assistant interface.
+The dark variants are the same artwork on a dark background.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE = ROOT / "assets" / "icon_source.png"
@@ -28,6 +29,9 @@ DARK_BACKGROUND = (24, 26, 31, 255)
 ICON_SIZE = 256
 LOGO_HEIGHT = 256
 
+# The corner radius as a share of the shorter side.
+CORNER_RADIUS = 0.16
+
 
 def _flatten(image: Image.Image, background: tuple[int, int, int, int]) -> Image.Image:
     """Place the artwork on a solid background."""
@@ -36,20 +40,37 @@ def _flatten(image: Image.Image, background: tuple[int, int, int, int]) -> Image
     return canvas.convert("RGB")
 
 
+def _rounded_mask(size: tuple[int, int]) -> Image.Image:
+    """Return a mask with rounded corners."""
+    mask = Image.new("L", size, 0)
+    radius = round(min(size) * CORNER_RADIUS)
+    ImageDraw.Draw(mask).rounded_rectangle(
+        (0, 0, size[0] - 1, size[1] - 1), radius=radius, fill=255
+    )
+    return mask
+
+
 def _fit(image: Image.Image, size: tuple[int, int]) -> Image.Image:
-    """Scale the whole artwork to fit the given size, keeping the ratio."""
+    """Scale the whole artwork to the given size, keeping the ratio."""
     return image.resize(size, Image.LANCZOS)
+
+
+def _with_rounded_corners(image: Image.Image) -> Image.Image:
+    """Round the corners of the artwork."""
+    result = image.convert("RGBA")
+    result.putalpha(_rounded_mask(result.size))
+    return result
 
 
 def _make_icon(source: Image.Image) -> Image.Image:
     """Return the square icon: the whole artwork scaled to a square."""
-    return _fit(source, (ICON_SIZE, ICON_SIZE))
+    return _with_rounded_corners(_fit(source, (ICON_SIZE, ICON_SIZE)))
 
 
 def _make_logo(source: Image.Image) -> Image.Image:
     """Return the logo: the whole artwork scaled to the logo height."""
     width = round(source.width * LOGO_HEIGHT / source.height)
-    return _fit(source, (width, LOGO_HEIGHT))
+    return _with_rounded_corners(_fit(source, (width, LOGO_HEIGHT)))
 
 
 def main() -> None:

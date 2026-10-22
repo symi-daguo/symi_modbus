@@ -9,9 +9,9 @@ One config entry describes **one Modbus master** (a serial port or a TCP endpoin
 
 | Item | Value |
 |------|--------|
-| Version | **2.0.0** |
+| Version | **2.1.0** |
 | Home Assistant | **2024.11.0** or newer (developed against 2026.10.2) |
-| Python dependency | `pyserial`, `pyserial-asyncio` (declared in `manifest.json`) |
+| Python dependency | `pyserial`, `pyserial-asyncio-fast` (declared in `manifest.json`) |
 
 ## Features
 
@@ -81,6 +81,23 @@ entry keeps its own connection, so the masters poll independently.
 The devices show up as `Serial /dev/ttyUSB0`, and their entities carry the slave address, for
 example `0A 线路 01`, so a device can be told apart by its link and by its slave address.
 
+## How a slave is read
+
+Every slave is read with **one** request that returns all of its coils at once. A 32 coil module
+is read with a single frame:
+
+```
+0A 01 00 00 00 20 3C A9
+│  │  └──┬──┘ └──┬─┘ └──┬─┘
+│  │     │        │      └─ CRC
+│  │     │        └──────── 0x0020 = 32 coils
+│  │     └───────────────── start address 0
+│  └─────────────────────── 0x01 = read coils
+└────────────────────────── 0x0A = slave address
+```
+
+The response carries the same shape, so one request per slave and per round is enough.
+
 ## Docker and serial
 
 The port list shows the devices **inside the container**. Map the host devices explicitly:
@@ -112,8 +129,27 @@ Home Assistant reads since 2026.3:
 | `logo.png` / `dark_logo.png` | 256 high |
 | `logo@2x.png` / `dark_logo@2x.png` | 512 high |
 
+The whole artwork is scaled to the target size, nothing is cut off, and the corners are rounded.
+The dark variants are the same artwork on a dark background.
+
 The source artwork lives in `assets/icon_source.png`. Run `python scripts/generate_brand.py` to
 regenerate every file after a brand change.
+
+## Home Assistant guidelines
+
+The integration follows the [integration quality scale](https://developers.home-assistant.io/docs/core/integration-quality-scale/rules)
+and declares the state of every rule in `custom_components/symi_modbus/quality_scale.yaml`.
+
+| Guideline | How it is met |
+|------------|---------------|
+| `log-when-unavailable` | A slave that stops answering is logged once at the info level, and once when it answers again. |
+| `entity-unavailable` | The availability is tracked per slave, so a silent slave only makes its own entities unavailable. |
+| `has-entity-name` | The entities are named in the context of their device and carry the slave address. |
+| `runtime-data` | The hub is stored in `ConfigEntry.runtime_data`. |
+| `test-before-configure` | The config flow asks the first slave for its coils before the entry is created. |
+| `parallel-updates` | `PARALLEL_UPDATES = 0`, the slaves share one serial line. |
+| `unique-config-entry` | A connection can only be added once. |
+| `entity-unique-id` | Every entity has a unique id built from the entry, the slave and the coil. |
 
 ## Development
 
@@ -125,6 +161,29 @@ docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
 - `tests/` covers the frame encoding, the hub behaviour, the reconnect logic and the packaging.
 - `scripts/modbus_simulator.py` serves a fake Modbus slave on a TCP port or a pseudo terminal,
   which is handy to try the integration without hardware.
+- `scripts/verify_load.py` runs the hub against a simulated bus with several slaves and reports the
+  timing of every round, the availability per slave and the memory growth.
+
+## Changelog
+
+### 2.1.0
+
+- The brand images show the whole artwork scaled to the target size with rounded corners.
+- The config flow asks the first slave for its coils before the entry is created.
+- The hub is stored in `ConfigEntry.runtime_data` and the switch platform declares
+  `PARALLEL_UPDATES = 0`.
+- A slave that stops answering is logged at the info level, once per outage, as the quality scale
+  asks for.
+- The integration declares the state of every quality scale rule in `quality_scale.yaml`.
+
+### 2.0.0
+
+- One config entry describes one Modbus master and all of its slaves.
+- The slaves share the scan interval, five slaves with a one second interval are asked every 200 ms.
+- The availability is tracked per slave, and the entities carry the slave address in their name.
+- A slave that stops answering times out after 0.5 s and is skipped for a while.
+- The serial connection always speaks RTU, the MBAP header only exists on TCP.
+- The brand images follow the sizes Home Assistant expects since 2026.3.
 
 ## License
 
