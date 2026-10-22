@@ -44,11 +44,12 @@
       },
       "slave": {
         "title": "Modbus 从站地址",
-        "description": "本连接上设备的单元号，10 即 0x0A。线圈数量是该设备实际拥有的线圈数，32 路模块填 32。之后可以在本集成页面继续添加从站。",
+        "description": "本连接上设备的单元号，10 即 0x0A。线圈数量是该设备实际拥有的线圈数，32 路模块填 32。之后可以在本集成页面继续添加从站。 一次添加多台从站，地址从上面的地址开始连续递增。",
         "data": {
           "slave": "从站地址（十进制）",
           "start": "起始线圈",
-          "coil_count": "线圈数量"
+          "coil_count": "线圈数量",
+          "slave_count": "从站数量"
         }
       }
     },
@@ -72,11 +73,12 @@
       "step": {
         "user": {
           "title": "添加 Modbus 从站",
-          "description": "本连接上设备的单元号，10 即 0x0A。线圈数量是该设备实际拥有的线圈数，32 路模块填 32。",
+          "description": "本连接上设备的单元号，10 即 0x0A。线圈数量是该设备实际拥有的线圈数，32 路模块填 32。 一次添加多台从站，地址从上面的地址开始连续递增。",
           "data": {
             "slave": "从站地址（十进制）",
             "start": "起始线圈",
-            "coil_count": "线圈数量"
+            "coil_count": "线圈数量",
+            "slave_count": "从站数量"
           }
         },
         "reconfigure": {
@@ -84,7 +86,8 @@
           "data": {
             "slave": "从站地址（十进制）",
             "start": "起始线圈",
-            "coil_count": "线圈数量"
+            "coil_count": "线圈数量",
+            "slave_count": "从站数量"
           }
         }
       },
@@ -101,7 +104,7 @@
       "step": {
         "user": {
           "title": "添加面板总线",
-          "description": "面板所在的串口以及面板品牌。品牌决定用哪套协议读取按键和驱动指示灯。",
+          "description": "面板所在的串口以及面板品牌。品牌决定用哪套协议读取按键和驱动指示灯。串口从检测到的设备里选择，也可以手动输入路径。",
           "data": {
             "brand": "面板品牌",
             "port": "串口设备",
@@ -127,10 +130,18 @@
             "panel_count": "面板数量",
             "buttons": "每面板按键数"
           }
+        },
+        "port_manual": {
+          "title": "手动输入串口路径",
+          "description": "填写在 Home Assistant 进程内可见的完整路径，例如 /dev/ttyUSB0、/dev/ttyS0 或 COM3。",
+          "data": {
+            "port": "串口设备"
+          }
         }
       },
       "error": {
-        "invalid_panel_path": "请输入有效的串口设备路径"
+        "invalid_panel_path": "请输入有效的串口设备路径",
+        "invalid_serial_path": "请输入有效的串口设备路径"
       }
     },
     "linkage": {

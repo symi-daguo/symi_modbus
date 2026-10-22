@@ -89,25 +89,32 @@ directory and restart.
 2. **TCP:** host, port and frame format. **Serial:** pick a detected port or enter a manual path,
    then set baud rate, data bits, parity and stop bits. The defaults are 9600 baud, 8 data bits,
    no parity and one stop bit.
-3. Enter the **slave address** (decimal, default 10 = `0x0A`), the **first coil** and the **coil
-   count** of that device.
-4. The entry is created with that slave.
+3. Enter the **slave address** (decimal, default 10 = `0x0A`), the **number of slaves** and the
+   **coil count** of the device. The number of slaves adds several slaves at once, their addresses
+   follow the address that was entered.
+4. The entry is created with those slaves.
 
 Everything else is managed on the page of the entry in **Settings → Devices & services**:
 
 | Button | What it does |
 |--------|--------------|
-| **Add slave** | Add another Modbus slave to this master. |
+| **Add slave** | Add one or more Modbus slaves to this master. |
 | **Add panel bus** | Add the serial line with the wall panels, and pick the brand. |
 | **Add button link** | Link panel buttons to relays. |
 
-Every entry that is already there can be **changed** or **removed** on the same page.
+Every entry that is already there can be **changed** or **removed** on the same page. A change only
+touches the entry it was made on, the other slaves, panel buses and links keep their settings.
 
-To use a second master (another serial port or another gateway), add the integration again. Each
-entry keeps its own connection, so the masters poll independently.
+The serial port of a panel bus is picked from the devices that are detected on the system, a path
+that is not listed can be entered by hand. A port that this integration already uses is not
+offered, because two connections on one port would split the bytes between them.
 
 The devices show up as `Serial /dev/ttyUSB0`, and their entities carry the slave address, for
-example `0A Line 01`, so a device can be told apart by its link and by its slave address.
+example `0A Line 01`, so a device can be told apart by its link and by its slave address. Every
+device belongs to the slave, panel bus or link it belongs to, so it shows up once and not twice.
+
+**Names that were changed by hand are kept.** A slave, a panel bus or a link that was renamed in
+the interface keeps that name, a later change of the configuration does not put the old name back.
 
 ## Wall panels
 
@@ -225,6 +232,21 @@ docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
   panel side with a burst of four hundred button presses.
 
 ## Changelog
+
+### 2.2.1
+
+- The **serial port of a panel bus** is a picker now. The detected devices are listed, the first
+  one that this integration does not use yet is filled in, and a path that is not listed can be
+  entered by hand. A port that is already in use is not offered, because two connections on one
+  port would split the bytes between them.
+- **Slaves are added in batches**: the form carries the first address and the number of slaves
+  that follow it.
+- The **device of a slave** belongs to the subentry of that slave now, so it shows up once in the
+  device list instead of twice.
+- A slave, a panel bus or a link that was **renamed by hand keeps its name**, a later change of
+  the configuration does not put the old name back.
+- Several changes that follow each other result in **one reload** of the entry, so a batch of
+  slaves is set up once and not once per slave.
 
 ### 2.2.0
 

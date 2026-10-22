@@ -3,10 +3,16 @@ from __future__ import annotations
 
 import logging
 import re
+from types import MappingProxyType
+
 import serial.tools.list_ports
 import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.config_entries import ConfigSubentryFlow, SubentryFlowResult
+from homeassistant.config_entries import (
+    ConfigSubentry,
+    ConfigSubentryFlow,
+    SubentryFlowResult,
+)
 from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
@@ -42,6 +48,7 @@ from .const import (
     CONF_SCAN_INTERVAL,
     CONF_SERIAL,
     CONF_SLAVE,
+    CONF_SLAVE_COUNT,
     CONF_STOPBITS,
     CONF_TCP,
     CONF_TYPE,
@@ -107,6 +114,9 @@ SLAVE_SCHEMA = vol.Schema(
         vol.Required(CONF_SLAVE, default=DEFAULT_SLAVE): NumberSelector(
             NumberSelectorConfig(min=0, max=247, mode=NumberSelectorMode.BOX)
         ),
+        vol.Optional(CONF_SLAVE_COUNT, default=1): NumberSelector(
+            NumberSelectorConfig(min=1, max=32, mode=NumberSelectorMode.BOX)
+        ),
         vol.Optional(CONF_COIL_START, default=0): NumberSelector(
             NumberSelectorConfig(min=0, max=65535, mode=NumberSelectorMode.BOX)
         ),
@@ -116,34 +126,34 @@ SLAVE_SCHEMA = vol.Schema(
     }
 )
 
-PANEL_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_BRAND, default=BRAND_SYMI): SelectSelector(
-            SelectSelectorConfig(
-                options=[
-                    {"value": BRAND_SYMI, "label": "Symi (亖米)"},
-                    {"value": BRAND_CLOWIRE, "label": "Clowire (克伦威尔)"},
-                    {"value": BRAND_LF, "label": "LF (拉斐)"},
-                ],
-                mode=SelectSelectorMode.DROPDOWN,
-            )
-        ),
-        vol.Required(CONF_PORT): cv.string,
-        vol.Optional(CONF_BAUDRATE, default=9600): cv.positive_int,
-        vol.Optional(CONF_BYTESIZE, default=8): vol.In([5, 6, 7, 8]),
-        vol.Optional(CONF_PARITY, default="N"): vol.In(["E", "O", "N", "None"]),
-        vol.Optional(CONF_STOPBITS, default=1): vol.In([1, 2]),
-        vol.Required("panel_start", default=1): NumberSelector(
-            NumberSelectorConfig(min=1, max=247, mode=NumberSelectorMode.BOX)
-        ),
-        vol.Required("panel_count", default=1): NumberSelector(
-            NumberSelectorConfig(min=1, max=64, mode=NumberSelectorMode.BOX)
-        ),
-        vol.Optional(CONF_BUTTONS, default=MAX_PANEL_BUTTONS): NumberSelector(
-            NumberSelectorConfig(min=1, max=MAX_PANEL_BUTTONS, mode=NumberSelectorMode.BOX)
-        ),
-    }
-)
+# The fields of a panel bus besides the serial port. The port itself is a
+# picker that is built when the form is shown, because the detected ports are
+# only known at that moment.
+PANEL_FIELDS = {
+    vol.Required(CONF_BRAND, default=BRAND_SYMI): SelectSelector(
+        SelectSelectorConfig(
+            options=[
+                {"value": BRAND_SYMI, "label": "Symi (亖米)"},
+                {"value": BRAND_CLOWIRE, "label": "Clowire (克伦威尔)"},
+                {"value": BRAND_LF, "label": "LF (拉斐)"},
+            ],
+            mode=SelectSelectorMode.DROPDOWN,
+        )
+    ),
+    vol.Optional(CONF_BAUDRATE, default=9600): cv.positive_int,
+    vol.Optional(CONF_BYTESIZE, default=8): vol.In([5, 6, 7, 8]),
+    vol.Optional(CONF_PARITY, default="N"): vol.In(["E", "O", "N", "None"]),
+    vol.Optional(CONF_STOPBITS, default=1): vol.In([1, 2]),
+    vol.Required("panel_start", default=1): NumberSelector(
+        NumberSelectorConfig(min=1, max=247, mode=NumberSelectorMode.BOX)
+    ),
+    vol.Required("panel_count", default=1): NumberSelector(
+        NumberSelectorConfig(min=1, max=64, mode=NumberSelectorMode.BOX)
+    ),
+    vol.Optional(CONF_BUTTONS, default=MAX_PANEL_BUTTONS): NumberSelector(
+        NumberSelectorConfig(min=1, max=MAX_PANEL_BUTTONS, mode=NumberSelectorMode.BOX)
+    ),
+}
 
 LINKAGE_SCHEMA = vol.Schema(
     {
@@ -230,6 +240,48 @@ def _friendly_name(hass, entity_id: str) -> str:
     return entity_id
 
 
+def _slave_addresses(first: int, count: int) -> list[int]:
+    """Return the addresses of a batch of slaves.
+
+    The batch starts at the first address and the addresses follow it.
+    """
+    return list(range(first, first + max(int(count), 1)))
+
+
+def _ports_in_use(hass, skip_subentry_id: str | None = None) -> set[str]:
+    """Return the serial ports this integration already uses.
+
+    Two connections cannot share a serial port, the bytes would be split
+    between them.
+    """
+    used: set[str] = set()
+    for config_entry in hass.config_entries.async_entries(DOMAIN):
+        if config_entry.data.get(CONF_TYPE) == CONF_SERIAL:
+            port = config_entry.data.get(CONF_PORT)
+            if port:
+                used.add(str(port))
+        for subentry in config_entry.get_subentries_of_type(SUBENTRY_PANEL):
+            if subentry.subentry_id == skip_subentry_id:
+                continue
+            port = subentry.data.get(CONF_PORT)
+            if port:
+                used.add(str(port))
+    return used
+
+
+def _serial_port_options(ports: list[ListPortInfo], used: set[str]) -> dict[str, str]:
+    """Return the selectable serial ports without the ones already in use."""
+    options: dict[str, str] = {}
+    for info in sorted(ports, key=lambda port: port.device):
+        if info.device in used:
+            continue
+        options[info.device] = _format_serial_port_label(info)
+    options[SERIAL_PORT_MANUAL_VALUE] = (
+        "未列出 - 手动输入路径 (Not listed - enter the path manually)"
+    )
+    return options
+
+
 class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Symi Modbus.
 
@@ -308,20 +360,13 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return await self.async_step_serial_params()
 
         ports = await self.hass.async_add_executor_job(_list_serial_ports)
-        options: dict[str, str] = {}
-        default_port: str | None = None
-
-        for info in sorted(ports, key=lambda p: p.device):
-            options[info.device] = _format_serial_port_label(info)
-            if default_port is None:
-                default_port = info.device
-
-        options[SERIAL_PORT_MANUAL_VALUE] = (
-            "Not listed / enter path manually (未列出-手动输入)"
+        # A serial port that is already used by another connection would
+        # split the bytes between them, so it is not offered.
+        options = _serial_port_options(ports, _ports_in_use(self.hass))
+        default_port: str | None = next(
+            (device for device in options if device != SERIAL_PORT_MANUAL_VALUE),
+            SERIAL_PORT_MANUAL_VALUE,
         )
-
-        if default_port is None:
-            default_port = SERIAL_PORT_MANUAL_VALUE
 
         schema = vol.Schema(
             {
@@ -424,14 +469,18 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors={"base": "cannot_connect"},
             )
 
-        slave = int(self._slave[CONF_SLAVE])
+        first = int(self._slave[CONF_SLAVE])
+        slave_data = {
+            key: value for key, value in self._slave.items() if key != CONF_SLAVE_COUNT
+        }
         subentries = [
             {
-                "data": self._slave,
+                "data": {**slave_data, CONF_SLAVE: address},
                 "subentry_type": SUBENTRY_SLAVE,
-                "title": f"Slave {slave:02X}",
-                "unique_id": str(slave),
+                "title": f"Slave {address:02X}",
+                "unique_id": str(address),
             }
+            for address in _slave_addresses(first, self._slave.get(CONF_SLAVE_COUNT, 1))
         ]
 
         return self.async_create_entry(
@@ -472,22 +521,45 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class SlaveSubentryFlow(ConfigSubentryFlow):
-    """Add and change a Modbus slave behind the master."""
+    """Add and change a Modbus slave behind the master.
+
+    Several slaves can be added in one go, the form carries the first address
+    and the number of slaves that follow it.
+    """
 
     async def async_step_user(self, user_input: dict | None = None) -> SubentryFlowResult:
-        """Add a slave."""
+        """Add one or more slaves."""
         if user_input is not None:
-            slave = int(user_input[CONF_SLAVE])
-            if self._slave_taken(slave, None):
+            base = {key: value for key, value in user_input.items() if key != CONF_SLAVE_COUNT}
+            first = int(base[CONF_SLAVE])
+            addresses = _slave_addresses(first, user_input.get(CONF_SLAVE_COUNT, 1))
+
+            if any(self._slave_taken(address, None) for address in addresses):
                 return self.async_show_form(
                     step_id="user",
                     data_schema=SLAVE_SCHEMA,
                     errors={"base": "slave_already_added"},
                 )
+
+            entry = self._get_entry()
+            # The flow creates the last slave, the ones before it are added
+            # here, so the list keeps the order of the addresses.
+            for address in addresses[:-1]:
+                self.hass.config_entries.async_add_subentry(
+                    entry,
+                    ConfigSubentry(
+                        data=MappingProxyType({**base, CONF_SLAVE: address}),
+                        subentry_type=SUBENTRY_SLAVE,
+                        title=f"Slave {address:02X}",
+                        unique_id=str(address),
+                    ),
+                )
+
+            last = addresses[-1]
             return self.async_create_entry(
-                title=f"Slave {slave:02X}",
-                data=user_input,
-                unique_id=str(slave),
+                title=f"Slave {last:02X}",
+                data={**base, CONF_SLAVE: last},
+                unique_id=str(last),
             )
 
         return self.async_show_form(step_id="user", data_schema=SLAVE_SCHEMA)
@@ -498,27 +570,42 @@ class SlaveSubentryFlow(ConfigSubentryFlow):
         subentry = self._get_reconfigure_subentry()
 
         if user_input is not None:
-            slave = int(user_input[CONF_SLAVE])
+            base = {key: value for key, value in user_input.items() if key != CONF_SLAVE_COUNT}
+            slave = int(base[CONF_SLAVE])
             if self._slave_taken(slave, subentry.subentry_id):
                 return self.async_show_form(
                     step_id="reconfigure",
-                    data_schema=SLAVE_SCHEMA,
+                    data_schema=self._reconfigure_schema(subentry),
                     errors={"base": "slave_already_added"},
                 )
-            return self.async_update_and_abort(
-                entry,
-                subentry,
-                title=f"Slave {slave:02X}",
-                data=user_input,
-                unique_id=str(slave),
-            )
+            update = {"data": {**base, CONF_SLAVE: slave}, "unique_id": str(slave)}
+            title = self._slave_title(subentry, slave)
+            if title is not None:
+                update["title"] = title
+            return self.async_update_and_abort(entry, subentry, **update)
 
         return self.async_show_form(
             step_id="reconfigure",
-            data_schema=self.add_suggested_values_to_schema(
-                SLAVE_SCHEMA, subentry.data
-            ),
+            data_schema=self._reconfigure_schema(subentry),
         )
+
+    def _reconfigure_schema(self, subentry) -> vol.Schema:
+        """Return the form of the reconfigure step with the current values."""
+        suggested = dict(subentry.data)
+        suggested[CONF_SLAVE_COUNT] = 1
+        return self.add_suggested_values_to_schema(SLAVE_SCHEMA, suggested)
+
+    @staticmethod
+    def _slave_title(subentry, slave: int) -> str | None:
+        """Return the new title, unless the user has renamed the slave.
+
+        A renamed slave keeps its name, so a change of the configuration does
+        not undo it.
+        """
+        if subentry.title.startswith("Slave "):
+            # The title still carries the default, it may follow the address.
+            return f"Slave {slave:02X}"
+        return None
 
     def _slave_taken(self, slave: int, own_subentry_id: str | None) -> bool:
         """Return whether another slave of this master uses the address."""
@@ -531,18 +618,49 @@ class SlaveSubentryFlow(ConfigSubentryFlow):
 
 
 class PanelSubentryFlow(ConfigSubentryFlow):
-    """Add and change a bus with wall panels."""
+    """Add and change a bus with wall panels.
+
+    The serial port is picked from the devices that are detected on the system.
+    A port that is not listed can be entered by hand, the form comes back with
+    that path filled in.
+    """
+
+    def __init__(self) -> None:
+        """Initialize the flow."""
+        self._suggested: dict = {}
+        self._own_subentry_id: str | None = None
 
     async def async_step_user(self, user_input: dict | None = None) -> SubentryFlowResult:
         """Add a panel bus."""
         if user_input is not None:
+            if user_input.get(CONF_PORT) == SERIAL_PORT_MANUAL_VALUE:
+                self._suggested = {
+                    key: value for key, value in user_input.items() if key != CONF_PORT
+                }
+                return await self.async_step_port_manual()
             data = self._build_data(user_input)
-            return self.async_create_entry(
-                title=self._build_title(data),
-                data=data,
-            )
+            return self.async_create_entry(title=self._build_title(data), data=data)
 
-        return self.async_show_form(step_id="user", data_schema=PANEL_SCHEMA)
+        return self.async_show_form(
+            step_id="user", data_schema=await self._async_schema(self._suggested)
+        )
+
+    async def async_step_port_manual(self, user_input: dict | None = None) -> SubentryFlowResult:
+        """Enter the path of a serial port that is not listed."""
+        if user_input is not None:
+            path = (user_input.get(CONF_PORT) or "").strip()
+            if not path:
+                return self.async_show_form(
+                    step_id="port_manual",
+                    data_schema=SERIAL_MANUAL_PATH_SCHEMA,
+                    errors={"base": "invalid_serial_path"},
+                )
+            self._suggested = {**self._suggested, CONF_PORT: path}
+            return await self.async_step_user(self._suggested)
+
+        return self.async_show_form(
+            step_id="port_manual", data_schema=SERIAL_MANUAL_PATH_SCHEMA
+        )
 
     async def async_step_reconfigure(self, user_input: dict | None = None) -> SubentryFlowResult:
         """Change a panel bus."""
@@ -550,13 +668,17 @@ class PanelSubentryFlow(ConfigSubentryFlow):
         subentry = self._get_reconfigure_subentry()
 
         if user_input is not None:
+            if user_input.get(CONF_PORT) == SERIAL_PORT_MANUAL_VALUE:
+                self._suggested = {
+                    key: value for key, value in user_input.items() if key != CONF_PORT
+                }
+                return await self.async_step_port_manual()
             data = self._build_data(user_input)
-            return self.async_update_and_abort(
-                entry,
-                subentry,
-                title=self._build_title(data),
-                data=data,
-            )
+            update = {"data": data}
+            title = self._panel_title(subentry, data)
+            if title is not None:
+                update["title"] = title
+            return self.async_update_and_abort(entry, subentry, **update)
 
         suggested = dict(subentry.data)
         panel_ids = suggested.get(CONF_PANEL_IDS) or [1]
@@ -564,12 +686,44 @@ class PanelSubentryFlow(ConfigSubentryFlow):
         suggested["panel_count"] = len(panel_ids)
         suggested.pop(CONF_PANEL_IDS, None)
 
+        self._suggested = suggested
+        self._own_subentry_id = subentry.subentry_id
+
         return self.async_show_form(
-            step_id="reconfigure",
-            data_schema=self.add_suggested_values_to_schema(
-                PANEL_SCHEMA, suggested
-            ),
+            step_id="reconfigure", data_schema=await self._async_schema(suggested)
         )
+
+    async def _async_schema(self, suggested: dict) -> vol.Schema:
+        """Build the form with the serial ports that are detected."""
+        ports = await self.hass.async_add_executor_job(_list_serial_ports)
+        used = _ports_in_use(self.hass, self._own_subentry_id)
+        options = _serial_port_options(ports, used)
+
+        current = suggested.get(CONF_PORT)
+        if current and current not in options:
+            # A path that was entered by hand stays selectable.
+            options = {current: current, **options}
+
+        default = current
+        if default not in options:
+            default = next(
+                (
+                    device
+                    for device in options
+                    if device != SERIAL_PORT_MANUAL_VALUE
+                ),
+                SERIAL_PORT_MANUAL_VALUE,
+            )
+
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_PORT, default=default): vol.In(options),
+                **PANEL_FIELDS,
+            }
+        )
+        if suggested:
+            schema = self.add_suggested_values_to_schema(schema, suggested)
+        return schema
 
     @staticmethod
     def _build_data(user_input: dict) -> dict:
@@ -586,6 +740,15 @@ class PanelSubentryFlow(ConfigSubentryFlow):
         brand = str(data.get(CONF_BRAND, ""))
         port = data.get(CONF_PORT, "")
         return f"{brand.upper()} {port}"
+
+    @staticmethod
+    def _panel_title(subentry, data: dict) -> str | None:
+        """Return the new title, unless the user has renamed the panel bus."""
+        default = PanelSubentryFlow._build_title(data)
+        if subentry.title.startswith(default.split(" ")[0].upper()):
+            # The title still carries the default, it may follow the port.
+            return default
+        return None
 
 
 class LinkageSubentryFlow(ConfigSubentryFlow):
@@ -620,15 +783,16 @@ class LinkageSubentryFlow(ConfigSubentryFlow):
         if user_input is not None:
             errors = self._validate(user_input)
             if not errors:
-                return self.async_update_and_abort(
-                    entry,
-                    subentry,
-                    title=self._build_title(user_input),
-                    data={
+                update = {
+                    "data": {
                         CONF_PANEL_ENTITIES: list(user_input[CONF_PANEL_ENTITIES]),
                         CONF_RELAY_ENTITIES: list(user_input[CONF_RELAY_ENTITIES]),
-                    },
-                )
+                    }
+                }
+                title = self._link_title(subentry, user_input)
+                if title is not None:
+                    update["title"] = title
+                return self.async_update_and_abort(entry, subentry, **update)
 
         return self.async_show_form(
             step_id="reconfigure",
@@ -668,6 +832,13 @@ class LinkageSubentryFlow(ConfigSubentryFlow):
         panel = _friendly_name(self.hass, panels[0]) if panels else "?"
         relay = _friendly_name(self.hass, relays[0]) if relays else "?"
         return f"{panel} → {relay}"
+
+    def _link_title(self, subentry, user_input: dict) -> str | None:
+        """Return the new title, unless the user has renamed the link."""
+        if " → " in subentry.title:
+            # The title still carries the default, it may follow the entities.
+            return self._build_title(user_input)
+        return None
 
 
 class SymiModbusOptionsFlow(config_entries.OptionsFlow):

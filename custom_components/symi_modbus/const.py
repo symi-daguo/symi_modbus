@@ -68,6 +68,9 @@ CONF_PANEL_IDS: Final = "panel_ids"
 CONF_PANEL_ENTITIES: Final = "panel_entities"
 CONF_RELAY_ENTITIES: Final = "relay_entities"
 
+# Number of slaves that are added in one go.
+CONF_SLAVE_COUNT: Final = "slave_count"
+
 # Panel brands
 BRAND_SYMI: Final = "symi"
 BRAND_CLOWIRE: Final = "clowire"

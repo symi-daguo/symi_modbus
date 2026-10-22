@@ -1,6 +1,7 @@
 """The Symi Modbus integration."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -10,6 +11,7 @@ from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import device_registry as dr
 import voluptuous as vol
 
 from .const import (
@@ -67,14 +69,93 @@ class SymiModbusRuntimeData:
 # The runtime data of an entry is kept in its runtime data.
 SymiModbusConfigEntry: TypeAlias = ConfigEntry
 
+# The reload of an entry is delayed a moment, so a few changes that follow
+# each other result in one reload.
+RELOAD_DELAY = 0.5
+
+# The pending reload of every entry.
+_RELOAD_TASKS: dict[str, asyncio.Task] = {}
+
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Reload the config entry when something changes.
 
-    Adding, changing or removing a subentry updates the entry, so the whole
-    entry is set up again with the new layout.
+    Several subentries can be added in one go, so the reloads are merged into
+    one. Otherwise the entry is set up again for every single subentry, and a
+    device can end up in the wrong subentry while the entry is half set up.
     """
-    await hass.config_entries.async_reload(entry.entry_id)
+    entry_id = entry.entry_id
+    pending = _RELOAD_TASKS.pop(entry_id, None)
+    if pending is not None:
+        pending.cancel()
+    _RELOAD_TASKS[entry_id] = hass.async_create_task(
+        _async_reload_later(hass, entry_id)
+    )
+
+
+async def _async_reload_later(hass: HomeAssistant, entry_id: str) -> None:
+    """Reload the entry once the changes have settled."""
+    await asyncio.sleep(RELOAD_DELAY)
+    if _RELOAD_TASKS.get(entry_id) is asyncio.current_task():
+        _RELOAD_TASKS.pop(entry_id, None)
+    if hass.config_entries.async_get_entry(entry_id) is None:
+        # The entry was removed while the reload was waiting.
+        return
+    await hass.config_entries.async_reload(entry_id)
+
+
+def _device_subentry_id(device, entry_id: str) -> str | None:
+    """Return the subentry a device belongs to.
+
+    Home Assistant 2026.9 keeps the owner of a device in a single field,
+    before that a device carried a mapping of entries and subentries.
+    """
+    subentry_id = getattr(device, "config_subentry_id", None)
+    if subentry_id is not None:
+        return subentry_id
+    subentries = device.config_entries_subentries.get(entry_id)
+    if not subentries:
+        return None
+    return next(iter(subentries))
+
+
+def _align_devices(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Put the device of a slave into the subentry of that slave.
+
+    A device belongs to exactly one subentry. The devices of an entry that was
+    created before the subentries were introduced still point at the entry
+    itself, so they show up twice in the device list: once under the entry and
+    once under the subentry of their slave.
+    """
+    registry = dr.async_get(hass)
+    for subentry in entry.get_subentries_of_type(SUBENTRY_SLAVE):
+        slave = int(subentry.data[CONF_SLAVE])
+        device = registry.async_get_device(
+            identifiers={(DOMAIN, f"{entry.entry_id}_{slave}")}
+        )
+        if device is None:
+            continue
+        if _device_subentry_id(device, entry.entry_id) == subentry.subentry_id:
+            continue
+
+        _LOGGER.debug("Moving the device of slave %s into its subentry", slave)
+        try:
+            registry.async_update_device(
+                device.id, new_config_subentry_id=subentry.subentry_id
+            )
+        except TypeError:
+            # Home Assistant before 2026.9 moves a device by adding the
+            # subentry and removing the entry it was attached to.
+            registry.async_update_device(
+                device.id,
+                add_config_entry_id=entry.entry_id,
+                add_config_subentry_id=subentry.subentry_id,
+            )
+            registry.async_update_device(
+                device.id,
+                remove_config_entry_id=entry.entry_id,
+                remove_config_subentry_id=None,
+            )
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
@@ -87,6 +168,8 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: SymiModbusConfigEntry) -> bool:
     """Set up Symi Modbus from a config entry."""
     _LOGGER.debug("Symi Modbus setting up entry %s", entry.entry_id)
+    _align_devices(hass, entry)
+
     hub = ModbusHub(hass, entry)
 
     if not await hub.async_setup():
@@ -131,6 +214,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: SymiModbusConfigEntry) -
 async def async_unload_entry(hass: HomeAssistant, entry: SymiModbusConfigEntry) -> bool:
     """Unload a config entry."""
     runtime: SymiModbusRuntimeData | None = entry.runtime_data
+
+    pending = _RELOAD_TASKS.pop(entry.entry_id, None)
+    if pending is not None:
+        pending.cancel()
 
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 

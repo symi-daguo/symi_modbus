@@ -44,11 +44,12 @@
       },
       "slave": {
         "title": "Modbus slave address",
-        "description": "The unit ID of the device on this connection, 10 is 0x0A. The coil count is the number of coils the device has, a 32 channel module uses 32. More slaves can be added later on the page of this integration.",
+        "description": "The unit ID of the device on this connection, 10 is 0x0A. The coil count is the number of coils the device has, a 32 channel module uses 32. More slaves can be added later on the page of this integration. Add several slaves at once, the addresses follow the address above.",
         "data": {
           "slave": "Slave address (decimal)",
           "start": "First coil",
-          "coil_count": "Coil count"
+          "coil_count": "Coil count",
+          "slave_count": "Number of slaves"
         }
       }
     },
@@ -72,11 +73,12 @@
       "step": {
         "user": {
           "title": "Add a Modbus slave",
-          "description": "The unit ID of a device on this connection, 10 is 0x0A. The coil count is the number of coils the device has, a 32 channel module uses 32.",
+          "description": "The unit ID of a device on this connection, 10 is 0x0A. The coil count is the number of coils the device has, a 32 channel module uses 32. Add several slaves at once, the addresses follow the address above.",
           "data": {
             "slave": "Slave address (decimal)",
             "start": "First coil",
-            "coil_count": "Coil count"
+            "coil_count": "Coil count",
+            "slave_count": "Number of slaves"
           }
         },
         "reconfigure": {
@@ -84,7 +86,8 @@
           "data": {
             "slave": "Slave address (decimal)",
             "start": "First coil",
-            "coil_count": "Coil count"
+            "coil_count": "Coil count",
+            "slave_count": "Number of slaves"
           }
         }
       },
@@ -101,7 +104,7 @@
       "step": {
         "user": {
           "title": "Add a wall panel bus",
-          "description": "The serial line the panels are connected to, together with their brand. The brand decides which protocol is used to read the buttons and to drive the indicator lights.",
+          "description": "The serial line the panels are connected to, together with their brand. The brand decides which protocol is used to read the buttons and to drive the indicator lights. Pick the port from the detected devices or enter its path.",
           "data": {
             "brand": "Panel brand",
             "port": "Serial device",
@@ -127,10 +130,18 @@
             "panel_count": "Number of panels",
             "buttons": "Buttons per panel"
           }
+        },
+        "port_manual": {
+          "title": "Enter the serial port path",
+          "description": "The device path as Home Assistant sees it, for example /dev/ttyUSB0, /dev/ttyS0 or COM3.",
+          "data": {
+            "port": "Serial device"
+          }
         }
       },
       "error": {
-        "invalid_panel_path": "Enter a valid serial device path"
+        "invalid_panel_path": "Enter a valid serial device path",
+        "invalid_serial_path": "Enter a valid serial device path"
       }
     },
     "linkage": {
