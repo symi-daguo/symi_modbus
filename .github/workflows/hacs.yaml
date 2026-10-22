@@ -15,7 +15,15 @@ jobs:
         uses: "actions/checkout@v4"
 
       - name: "Run HACS Action"
-        uses: "hacs/action@main"
-        with:
-          category: "integration"
-          ignore: "brands"
+        # The action is called directly instead of through the composite
+        # action, so the validation runs on the same runner pool as the other
+        # jobs.
+        run: |
+          docker run --rm \
+            -e "INPUT_GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}" \
+            -e "INPUT_REPOSITORY=${{ github.repository }}" \
+            -e "REPOSITORY=${{ github.repository }}" \
+            -e "INPUT_CATEGORY=integration" \
+            -v "${{ github.workspace }}:/github/workspace" \
+            -w /github/workspace \
+            ghcr.io/hacs/action:main
