@@ -1,107 +1,97 @@
-"""Symi Modbus integration."""
+"""Modbus hub: one connection (master) polling one or more slaves."""
 from __future__ import annotations
 
 import asyncio
 import logging
 from datetime import timedelta
 from time import monotonic
-from typing import Callable, List, Optional
-
-import serial
-import serial_asyncio
+from typing import Callable, Optional
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import (
-    CONF_DELAY,
-    CONF_HOST,
-    CONF_NAME,
-    CONF_PORT,
-    CONF_SCAN_INTERVAL,
-    CONF_TYPE,
-)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_track_time_interval
 
 from .const import (
     CONF_BAUDRATE,
     CONF_BYTESIZE,
+    CONF_COIL_COUNT,
+    CONF_DELAY,
+    CONF_FRAME,
+    CONF_HOST,
+    CONF_NAME,
     CONF_PARITY,
+    CONF_PORT,
+    CONF_SCAN_INTERVAL,
     CONF_SERIAL,
+    CONF_SLAVES,
     CONF_STOPBITS,
     CONF_TCP,
+    CONF_TYPE,
     DEFAULT_SCAN_INTERVAL,
-    DEFAULT_DELAY_MS,
+    FRAME_MBAP,
 )
-from .crc16 import crc16_fn
+from .connection import ModbusConnection
+from .frames import (
+    FUNCTION_READ_COILS,
+    FUNCTION_WRITE_MULTIPLE_COILS,
+    FUNCTION_WRITE_SINGLE_COIL,
+    build_read_request,
+    build_write_coil_request,
+    build_write_multiple_coils_request,
+    parse_coil_bits,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
-CONNECT_TIMEOUT = 5
-READ_TIMEOUT = 2
-SERIAL_POST_WRITE_DELAY = 0.02
 CRC_WARN_INTERVAL = 60.0
 
-
-def _serial_bytesize(value: int) -> int:
-    return {
-        5: serial.FIVEBITS,
-        6: serial.SIXBITS,
-        7: serial.SEVENBITS,
-        8: serial.EIGHTBITS,
-    }.get(int(value), serial.EIGHTBITS)
-
-
-def _serial_parity(value: str) -> int:
-    v = (value or "N").strip().upper()
-    if v in ("N", "NONE"):
-        return serial.PARITY_NONE
-    if v == "E":
-        return serial.PARITY_EVEN
-    if v == "O":
-        return serial.PARITY_ODD
-    return serial.PARITY_NONE
-
-
-def _serial_stopbits(value: int) -> float:
-    return serial.STOPBITS_TWO if int(value) == 2 else serial.STOPBITS_ONE
+# Callbacks receive (states, slave).
+StateCallback = Callable[[dict[int, bool], int], None]
+AvailabilityCallback = Callable[[bool], None]
 
 
 class ModbusHub:
-    """Async Modbus RTU over TCP or serial (one hub per config entry)."""
+    """Poll the slaves behind one Modbus master (serial port or TCP endpoint).
+
+    Every slave is polled on its own schedule slot and a failing slave never
+    blocks the others, so one dead device cannot stall the whole bus.
+    """
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
-        """Initialize the Modbus hub."""
+        """Initialize the hub from a config entry."""
         self._hass = hass
         self._entry = entry
         self._config = entry.data
-        self._name = self._config[CONF_NAME]
+        self._name = self._config.get(CONF_NAME, "Symi Modbus")
         self._type = self._config[CONF_TYPE]
-        self._lock = asyncio.Lock()
-        self._callbacks: List[Callable] = []
-        self._availability_callbacks: List[Callable[[bool], None]] = []
+        self._callbacks: list[StateCallback] = []
+        self._availability_callbacks: list[AvailabilityCallback] = []
         self._scan_interval = entry.options.get(
             CONF_SCAN_INTERVAL,
             self._config.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
         )
-        self._delay = self._config.get(CONF_DELAY, DEFAULT_DELAY_MS)
-        self._slave_data: dict = {}
-        self._slaves_to_poll: dict = {}
+        self._delay = self._config.get(CONF_DELAY, 0)
+        self._frame = self._config.get(CONF_FRAME, FRAME_MBAP)
+        self._coil_count = int(self._config.get(CONF_COIL_COUNT, 32))
+        self._slaves: dict[int, dict] = {}
+        self._slave_data: dict[int, dict[int, bool]] = {}
         self._unsub_poll = None
         self._in_error = False
+        self._link_was_down = False
         self._comm_ok = True
         self._crc_last_log: dict[str, float] = {}
-        self._ascii_warned = False
+        self._transaction_id = 0
 
-        if self._type == CONF_TCP:
-            self._host = self._config[CONF_HOST]
-            self._port = int(self._config.get(CONF_PORT, 502))
-        elif self._type == CONF_SERIAL:
-            self._port = self._config[CONF_PORT]
-            self._baudrate = int(self._config.get(CONF_BAUDRATE, 9600))
-            self._bytesize = int(self._config.get(CONF_BYTESIZE, 8))
-            self._parity = str(self._config.get(CONF_PARITY, "N"))
-            self._stopbits = int(self._config.get(CONF_STOPBITS, 1))
-            self._rtu = self._config.get(CONF_METHOD, "rtu") == "rtu"
+        self._connection = ModbusConnection(
+            connection_type=self._type,
+            host=self._config.get(CONF_HOST),
+            port=self._config.get(CONF_PORT),
+            baudrate=int(self._config.get(CONF_BAUDRATE, 9600)),
+            bytesize=int(self._config.get(CONF_BYTESIZE, 8)),
+            parity=str(self._config.get(CONF_PARITY, "N")),
+            stopbits=int(self._config.get(CONF_STOPBITS, 1)),
+            frame=self._frame,
+        )
 
     @property
     def name(self) -> str:
@@ -109,26 +99,50 @@ class ModbusHub:
         return self._name
 
     @property
+    def entry_id(self) -> str:
+        """Return the id of the config entry behind this hub."""
+        return self._entry.entry_id
+
+    @property
     def connection_type(self) -> str:
-        """Return connection type key (tcp / serial)."""
+        """Return the connection type key (tcp / serial)."""
         return self._type
 
-    def add_callback(self, callback_func: Callable) -> None:
+    @property
+    def frame(self) -> str:
+        """Return the frame format in use."""
+        return self._frame
+
+    @property
+    def coil_count(self) -> int:
+        """Return the number of coils exposed per slave."""
+        return self._coil_count
+
+    @property
+    def slaves(self) -> dict[int, dict]:
+        """Return the registered slaves and their coil ranges."""
+        return self._slaves
+
+    def get_state(self, slave: int, address: int) -> bool | None:
+        """Return the last known state of a coil, or None when unknown."""
+        return self._slave_data.get(slave, {}).get(address)
+
+    def add_callback(self, callback_func: StateCallback) -> None:
         """Register a state callback function."""
         self._callbacks.append(callback_func)
 
-    def remove_callback(self, callback_func: Callable) -> None:
+    def remove_callback(self, callback_func: StateCallback) -> None:
         """Remove a state callback registered earlier."""
         try:
             self._callbacks.remove(callback_func)
         except ValueError:
             pass
 
-    def add_availability_callback(self, callback_func: Callable[[bool], None]) -> None:
+    def add_availability_callback(self, callback_func: AvailabilityCallback) -> None:
         """Register callback for transport availability (True = link up)."""
         self._availability_callbacks.append(callback_func)
 
-    def remove_availability_callback(self, callback_func: Callable[[bool], None]) -> None:
+    def remove_availability_callback(self, callback_func: AvailabilityCallback) -> None:
         """Remove an availability callback registered earlier."""
         try:
             self._availability_callbacks.remove(callback_func)
@@ -136,12 +150,13 @@ class ModbusHub:
             pass
 
     def _notify_availability(self, available: bool) -> None:
+        """Notify listeners when the transport availability changes."""
         if self._comm_ok == available:
             return
         self._comm_ok = available
-        for cb in self._availability_callbacks:
+        for callback in self._availability_callbacks:
             try:
-                cb(available)
+                callback(available)
             except Exception:  # noqa: BLE001
                 _LOGGER.exception("Availability callback failed")
 
@@ -154,32 +169,53 @@ class ModbusHub:
                 _LOGGER.info("%s (%s)", error_text, self._name)
             self._in_error = error_state
 
-    def _throttled_crc_warning(self, key: str, message: str) -> None:
+    def _note_link_up(self) -> None:
+        """Report that the link recovered, once per outage."""
+        if self._link_was_down:
+            _LOGGER.info("Connection restored (%s)", self._name)
+            self._link_was_down = False
+
+    def _note_link_down(self, reason: str) -> None:
+        """Report that the link failed, once per outage."""
+        self._link_was_down = True
+        self._log_error(reason)
+
+    def _throttled_warning(self, key: str, message: str) -> None:
+        """Log a warning at most once per minute per key."""
         now = monotonic()
         last = self._crc_last_log.get(key, 0.0)
         if now - last >= CRC_WARN_INTERVAL:
             self._crc_last_log[key] = now
             _LOGGER.warning("%s (%s)", message, self._name)
 
-    async def _async_close_writer(self, writer: Optional[asyncio.StreamWriter]) -> None:
-        if writer is None:
-            return
-        try:
-            writer.close()
-            await writer.wait_closed()
-        except Exception:  # noqa: BLE001
-            pass
+    def register_slave(self, slave: int, start: int = 0, count: int | None = None) -> None:
+        """Register a slave unit and the coil range to poll for it."""
+        coil_count = int(count if count is not None else self._coil_count)
+        self._slaves[slave] = {"start": int(start), "count": coil_count}
+        _LOGGER.debug(
+            "Registered slave %s, coils %s-%s",
+            slave,
+            int(start),
+            int(start) + coil_count - 1,
+        )
+
+    def register_slaves(self, slaves: dict[int | str, dict]) -> None:
+        """Register every slave of this hub.
+
+        Slave keys are stored as strings in the config entry, so they are
+        normalised to integers here.
+        """
+        for slave, options in slaves.items():
+            self.register_slave(
+                int(slave),
+                start=int(options.get("start", 0)),
+                count=int(options.get("count", self._coil_count)),
+            )
 
     async def async_setup(self) -> bool:
         """Set up the modbus hub."""
         _LOGGER.debug("Setting up Modbus hub %s (%s)", self._name, self._type)
-
-        if self._type == CONF_SERIAL and not self._rtu and not self._ascii_warned:
-            _LOGGER.warning(
-                "Serial method is not RTU; ASCII framing is not implemented - using RTU frames (%s)",
-                self._name,
-            )
-            self._ascii_warned = True
+        self.register_slaves(self._config.get(CONF_SLAVES, {}))
 
         self._unsub_poll = async_track_time_interval(
             self._hass,
@@ -188,167 +224,120 @@ class ModbusHub:
         )
         return True
 
-    async def async_send(self, data: list[int]) -> Optional[bytes]:
-        """Send a Modbus RTU frame and read the response."""
-        writer: Optional[asyncio.StreamWriter] = None
-        payload = bytes(data)
+    def _next_transaction_id(self) -> int:
+        """Return an incrementing transaction id for MBAP frames."""
+        self._transaction_id = (self._transaction_id + 1) & 0xFFFF
+        return self._transaction_id
 
-        try:
-            if self._type == CONF_TCP:
-                coro = asyncio.open_connection(self._host, self._port)
-                reader, writer = await asyncio.wait_for(coro, CONNECT_TIMEOUT)
-            elif self._type == CONF_SERIAL:
-                reader, writer = await asyncio.wait_for(
-                    serial_asyncio.open_serial_connection(
-                        url=self._port,
-                        baudrate=self._baudrate,
-                        bytesize=_serial_bytesize(self._bytesize),
-                        parity=_serial_parity(self._parity),
-                        stopbits=_serial_stopbits(self._stopbits),
-                    ),
-                    CONNECT_TIMEOUT,
-                )
-            else:
-                self._log_error(f"Unsupported connection type: {self._type}")
-                self._notify_availability(False)
-                return None
-
-            writer.write(payload)
-            await writer.drain()
-
-            if self._type == CONF_SERIAL:
-                await asyncio.sleep(SERIAL_POST_WRITE_DELAY)
-
-            buf = await asyncio.wait_for(reader.read(256), READ_TIMEOUT)
-            if len(buf) > 2:
-                self._log_error("Connection restored", error_state=False)
-                self._notify_availability(True)
-                return buf
-
-            self._log_error("Received insufficient data from device")
-            self._notify_availability(False)
+    async def async_req_state(self, slave: int) -> dict[int, bool] | None:
+        """Read the coil states of one slave."""
+        options = self._slaves.get(slave)
+        if options is None:
             return None
 
-        except TimeoutError:
-            self._log_error("Response timed out")
-            self._notify_availability(False)
-            return None
-        except Exception as err:  # noqa: BLE001
-            self._log_error(f"{self._type.upper()} communication failed: {err}")
-            self._notify_availability(False)
-            return None
-        finally:
-            await self._async_close_writer(writer)
-
-    def register_slaves_to_poll(self, slave: int, addresses: list[int]) -> None:
-        """Register slave unit and coil addresses to poll."""
-        if slave not in self._slaves_to_poll:
-            self._slaves_to_poll[slave] = {"addresses": []}
-
-        for address in addresses:
-            if address not in self._slaves_to_poll[slave]["addresses"]:
-                self._slaves_to_poll[slave]["addresses"].append(address)
-
-        self._slaves_to_poll[slave]["start"] = min(self._slaves_to_poll[slave]["addresses"])
-        max_addr = max(self._slaves_to_poll[slave]["addresses"])
-        self._slaves_to_poll[slave]["count"] = (
-            max_addr - self._slaves_to_poll[slave]["start"] + 1
-        )
-
-        _LOGGER.debug(
-            "Registered polling for slave %s, addresses: %s",
+        request = build_read_request(
             slave,
-            self._slaves_to_poll[slave]["addresses"],
+            FUNCTION_READ_COILS,
+            options["start"],
+            options["count"],
+            self._frame,
+            self._next_transaction_id(),
         )
+        payload = await self._connection.async_request(request, FUNCTION_READ_COILS)
+        if payload is None:
+            self._notify_availability(False)
+            self._note_link_down("No response from device")
+            return None
 
-    async def async_req_state(self, slave: int) -> Optional[bytes]:
-        """Request coil states from a slave."""
-        start = self._slaves_to_poll[slave]["start"]
-        count = self._slaves_to_poll[slave]["count"]
+        self._note_link_up()
+        self._notify_availability(True)
 
-        data = [slave, 1, 0, start, 0, count]
-        for crc in crc16_fn(data):
-            data.append(crc)
+        # Read-coils payload: byte count followed by the packed bits.
+        if not payload:
+            return None
+        byte_count = payload[0]
+        states = parse_coil_bits(payload[1 : 1 + byte_count], options["count"])
+        return states
 
-        async with self._lock:
-            return await self.async_send(data)
-
-    def handle_state(self, data: bytes) -> bool:
-        """Process state data from response."""
-        if len(data) < 3 or data[1] != 1:
-            return False
-
-        slave = data[0]
-        if slave not in self._slaves_to_poll:
-            return False
-
-        states: dict[int, bool] = {}
-        start = self._slaves_to_poll[slave]["start"]
-        for i in range(data[2]):
-            bits = data[i + 3]
-            for j in range(8):
-                addr = start + j + i * 8
-                states[addr] = bool(bits >> j & 0x01)
-
+    def handle_state(self, states: dict[int, bool], slave: int) -> None:
+        """Store new states and push them to the listeners."""
         self._slave_data[slave] = states
-
-        for callback_func in self._callbacks:
-            callback_func(states, slave)
-
-        return True
-
-    def check_crc(self, data: bytes) -> bool:
-        """Check CRC of response data."""
-        if len(data) < 3:
-            return False
-        crc = crc16_fn(data[:-2])
-        return (data[-2] == crc[0]) & (data[-1] == crc[1])
+        for callback in self._callbacks:
+            try:
+                callback(states, slave)
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception("State callback failed")
 
     async def async_poll_slaves(self, now: Optional[object] = None) -> None:
-        """Poll all registered slaves."""
-        for slave in self._slaves_to_poll:
-            response = await self.async_req_state(slave)
-
-            if response is None:
+        """Poll every registered slave, isolating failures per slave."""
+        for slave in list(self._slaves):
+            try:
+                states = await self.async_req_state(slave)
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception("Polling slave %s failed", slave)
                 continue
 
-            if not self.check_crc(response):
-                self._throttled_crc_warning(
-                    f"slave-{slave}",
-                    f"CRC check failed for slave {slave}",
-                )
+            if states is None:
                 continue
 
-            self.handle_state(response[:-2])
+            self.handle_state(states, slave)
 
             if self._delay > 0:
                 await asyncio.sleep(self._delay / 1000)
 
     async def write_coil(self, slave: int, address: int, value: bool) -> bool:
-        """Write to a coil."""
-        data = [slave, 5, 0, address, 0, 0]
-        if value:
-            data[4] = 0xFF
+        """Write a single coil on a slave."""
+        if slave not in self._slaves:
+            _LOGGER.warning("Slave %s is not registered on hub %s", slave, self._name)
+            return False
 
-        for crc in crc16_fn(data):
-            data.append(crc)
+        request = build_write_coil_request(
+            slave, address, value, self._frame, self._next_transaction_id()
+        )
+        payload = await self._connection.async_request(request, FUNCTION_WRITE_SINGLE_COIL)
+        if payload is None:
+            self._notify_availability(False)
+            self._note_link_down("No response from device")
+            return False
 
-        async with self._lock:
-            response = await self.async_send(data)
-            if response is None:
-                return False
+        self._note_link_up()
+        self._notify_availability(True)
 
-            if not self.check_crc(response):
-                self._throttled_crc_warning("write", "CRC check failed for write response")
-                return False
+        # Reflect the new value locally; the next poll confirms it.
+        if slave in self._slave_data and address in self._slave_data[slave]:
+            self._slave_data[slave][address] = value
 
-            if slave in self._slave_data and address in self._slave_data[slave]:
-                self._slave_data[slave][address] = value
+        return True
 
-            return True
+    async def write_coils(self, slave: int, address: int, values: list[bool]) -> bool:
+        """Write several consecutive coils on a slave."""
+        if slave not in self._slaves:
+            _LOGGER.warning("Slave %s is not registered on hub %s", slave, self._name)
+            return False
+
+        request = build_write_multiple_coils_request(
+            slave, address, values, self._frame, self._next_transaction_id()
+        )
+        payload = await self._connection.async_request(request, FUNCTION_WRITE_MULTIPLE_COILS)
+        if payload is None:
+            self._notify_availability(False)
+            self._note_link_down("No response from device")
+            return False
+
+        self._note_link_up()
+        self._notify_availability(True)
+
+        if slave in self._slave_data:
+            for offset, value in enumerate(values):
+                target = address + offset
+                if target in self._slave_data[slave]:
+                    self._slave_data[slave][target] = value
+
+        return True
 
     async def async_stop(self, event: Optional[object] = None) -> None:
-        """Stop the hub."""
+        """Stop the hub and close the transport."""
         if self._unsub_poll is not None:
             self._unsub_poll()
             self._unsub_poll = None
+        await self._connection.async_close()

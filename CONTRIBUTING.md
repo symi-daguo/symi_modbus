@@ -9,7 +9,7 @@
 - 对问题或功能的清晰描述
 - 问题的复现步骤（如适用）
 - 您的 Home Assistant 版本
-- 您使用的硬件配置
+- 您使用的硬件配置（串口参数、从站地址、连接方式）
 
 ## 提交代码
 
@@ -21,20 +21,26 @@
 
 ## 代码风格
 
-请确保您的代码遵循以下规范：
-
 - 使用 [Black](https://github.com/psf/black) 进行代码格式化
 - 遵循 [Home Assistant 编码规范](https://developers.home-assistant.io/docs/development_guidelines)
 - 在适当的地方添加文档字符串和注释
 
-## 测试您的代码
+## 运行测试
 
-在提交前，请确保您的代码：
+提交前请确保全部测试通过：
 
-- 没有引入新的 pylint 警告或错误
-- 与 Home Assistant 最新版本兼容
-- 正确处理错误情况
+```bash
+docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
+  sh -c "pip install pytest-asyncio -q && python -m pytest tests/ -q --asyncio-mode=auto"
+```
+
+新增功能请同时补充测试，尤其是帧编解码与断线重连相关的逻辑。
+
+## 品牌资源
+
+品牌图片位于 `custom_components/symi_modbus/brand/`，源图在 `assets/icon_source.png`。
+修改源图后运行 `python scripts/generate_brand.py` 重新生成全部尺寸，不要手工编辑生成结果。
 
 ## 许可证
 
-通过提交代码，您同意您的贡献将在与项目相同的许可证（MIT）下发布。 
+通过提交代码，您同意您的贡献将在与项目相同的许可证（MIT）下发布。

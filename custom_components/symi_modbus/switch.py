@@ -4,39 +4,16 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-import voluptuous as vol
-
-from homeassistant.components.switch import PLATFORM_SCHEMA, SwitchEntity
+from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_ADDRESS, CONF_DEVICE_CLASS, CONF_SLAVE, CONF_UNIQUE_ID
 from homeassistant.core import HomeAssistant, callback
-import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity import generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import CONF_SWITCHS, CONF_TCP, DEFAULT_SLAVE, DOMAIN
+from .const import CONF_COIL_COUNT, CONF_SLAVES, CONF_TCP, DOMAIN
 from .modbus import ModbusHub
 
 _LOGGER = logging.getLogger(__name__)
-
-ENTITY_ID_FORMAT = DOMAIN + ".{}"
-
-SWITCH_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_ADDRESS): cv.positive_int,
-        vol.Required(CONF_NAME): cv.string,
-        vol.Optional(CONF_SLAVE, default=DEFAULT_SLAVE): cv.positive_int,
-        vol.Optional(CONF_DEVICE_CLASS): cv.string,
-        vol.Optional(CONF_UNIQUE_ID): cv.string,
-    }
-)
-
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
-    {
-        vol.Required(CONF_SWITCHS): vol.All(cv.ensure_list, [SWITCH_SCHEMA]),
-    }
-)
 
 
 async def async_setup_entry(
@@ -44,55 +21,57 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up the Modbus switch entities."""
-    hub = hass.data[DOMAIN][config_entry.entry_id]
+    """Set up the Modbus switch entities for every slave of this master."""
+    hub: ModbusHub = hass.data[DOMAIN][config_entry.entry_id]
 
     entities: list[ModbusSwitch] = []
+    slaves = config_entry.data.get(CONF_SLAVES, {})
+    default_count = int(config_entry.data.get(CONF_COIL_COUNT, hub.coil_count))
 
-    slave = int(config_entry.data.get(CONF_SLAVE, DEFAULT_SLAVE))
-    addresses = list(range(32))
+    for slave_key, options in slaves.items():
+        # Slave keys are stored as strings in the config entry.
+        slave = int(slave_key)
+        start = int(options.get("start", 0))
+        count = int(options.get("count", default_count))
 
-    hub.register_slaves_to_poll(slave, addresses)
-
-    for i, address in enumerate(addresses):
-        display_number = i + 1
-        name = f"{slave:02X}switch{display_number:02d}"
-        unique_id = f"{config_entry.entry_id}_{slave}_{address}"
-
-        entities.append(
-            ModbusSwitch(
-                hub,
-                slave,
-                address,
-                name,
-                unique_id,
-                display_number,
+        for offset in range(count):
+            address = start + offset
+            entities.append(
+                ModbusSwitch(
+                    hub,
+                    slave,
+                    address,
+                    offset + 1,
+                    f"{config_entry.entry_id}_{slave}_{address}",
+                )
             )
-        )
 
     async_add_entities(entities)
 
 
 class ModbusSwitch(SwitchEntity):
-    """Representation of a Modbus switch."""
+    """Representation of a single Modbus coil."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "coil"
+    _attr_device_class = "switch"
 
     def __init__(
         self,
         hub: ModbusHub,
         slave: int,
         address: int,
-        name: str,
+        line_number: int,
         unique_id: str,
-        display_number: int,
         device_class: Optional[str] = None,
     ) -> None:
         """Initialize the Modbus switch."""
         self._hub = hub
         self._slave = slave
         self._address = address
-        self._display_number = display_number
-        self._attr_name = f"{self._hub.name} 线路 {self._display_number}"
+        self._line_number = line_number
         self._attr_unique_id = unique_id
+        self._attr_translation_placeholders = {"line": f"{line_number:02d}"}
         if device_class is not None:
             self._attr_device_class = device_class
         self._is_on = False
@@ -101,29 +80,21 @@ class ModbusSwitch(SwitchEntity):
         self._hub.add_callback(self.async_on_state_change)
         self._hub.add_availability_callback(self._on_hub_available)
 
-        self.entity_id = generate_entity_id(
-            ENTITY_ID_FORMAT, f"{name}_{slave}_{address}", hass=hub._hass
-        )
-
     @property
     def device_info(self) -> DeviceInfo:
-        """Return device information."""
+        """Return the device this coil belongs to."""
         conn = "TCP" if self._hub.connection_type == CONF_TCP else "Serial"
         return DeviceInfo(
-            identifiers={(DOMAIN, f"{self._hub.name}_{self._slave}")},
-            name=f"Modbus {conn} {self._slave:02X}",
+            # The entry id keeps the device stable even when the title changes.
+            identifiers={(DOMAIN, f"{self._hub.entry_id}_{self._slave}")},
+            name=f"{conn} Slave {self._slave:02X}",
             manufacturer="Symi",
-            model="Modbus Switch Module",
+            model="Modbus Relay Module",
         )
-
-    @property
-    def available(self) -> bool:
-        """Return True if entity is available."""
-        return self._attr_available
 
     @property
     def is_on(self) -> bool:
-        """Return true if switch is on."""
+        """Return true if the coil is on."""
         return self._is_on
 
     @callback
@@ -135,14 +106,14 @@ class ModbusSwitch(SwitchEntity):
         self.async_write_ha_state()
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn the switch on."""
+        """Turn the coil on."""
         ok = await self._hub.write_coil(self._slave, self._address, True)
         if ok:
             self._is_on = True
             self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn the switch off."""
+        """Turn the coil off."""
         ok = await self._hub.write_coil(self._slave, self._address, False)
         if ok:
             self._is_on = False
@@ -150,28 +121,23 @@ class ModbusSwitch(SwitchEntity):
 
     @callback
     def async_on_state_change(self, data: dict[int, bool], slave: int) -> None:
-        """Update state when state changes."""
+        """Update the state when the hub reports new values."""
         if slave != self._slave:
             return
 
-        if not self._attr_available:
-            self._attr_available = True
+        if self._address not in data:
+            return
 
-        if self._address in data:
-            new_state = data[self._address]
-            if new_state != self._is_on:
-                self._is_on = new_state
-                self.async_write_ha_state()
+        new_state = data[self._address]
+        changed = new_state != self._is_on
+        self._is_on = new_state
+        if changed or not self._attr_available:
+            self._attr_available = True
+            self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
-        """Restore state from hub cache."""
-        if self._slave in self._hub._slave_data:
-            data = self._hub._slave_data[self._slave]
-            if self._address in data:
-                self._is_on = data[self._address]
-                self._attr_available = True
-
-    async def async_will_remove_from_hass(self) -> None:
-        """Detach hub listeners."""
-        self._hub.remove_callback(self.async_on_state_change)
-        self._hub.remove_availability_callback(self._on_hub_available)
+        """Restore the last known state from the hub cache."""
+        state = self._hub.get_state(self._slave, self._address)
+        if state is not None:
+            self._is_on = state
+            self._attr_available = True

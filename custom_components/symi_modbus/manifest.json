@@ -8,7 +8,8 @@
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/symi-daguo/symi_modbus/issues",
   "requirements": ["pyserial>=3.5"],
-  "homeassistant": "2024.1.0",
-  "version": "1.2.1",
-  "icon": "mdi:toggle-switch"
+  "homeassistant": "2024.11.0",
+  "version": "2.0.0",
+  "icon": "mdi:toggle-switch",
+  "categories": ["diy_makers"]
 }

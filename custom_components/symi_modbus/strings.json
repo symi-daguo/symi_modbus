@@ -12,7 +12,8 @@
         "title": "Configure TCP connection",
         "data": {
           "host": "Host",
-          "port": "Port"
+          "port": "Port",
+          "frame": "Frame format"
         }
       },
       "serial_pick": {
@@ -35,26 +36,26 @@
           "baudrate": "Baudrate",
           "bytesize": "Bytesize",
           "parity": "Parity",
-          "stopbits": "Stopbits",
-          "method": "Method"
+          "stopbits": "Stopbits"
         }
       },
       "slave": {
         "title": "Modbus slave address",
-        "description": "Unit ID of the device on this connection (default 10 = 0x0A). To add another slave on the same TCP link or serial port, add this integration again.",
+        "description": "Enter the unit ID of the device on this connection (default 10 = 0x0A). Tick the box to add another slave on the same connection.",
         "data": {
-          "slave": "Slave address (decimal, e.g. 10 for 0x0A)"
+          "slave": "Slave address (decimal)",
+          "add_more_slaves": "Add another slave"
         }
       }
     },
     "error": {
       "invalid_host": "Enter a valid host name or IP address",
-      "cannot_connect": "Failed to connect, please check your configuration",
-      "already_configured": "This slave device is already configured",
-      "invalid_serial_path": "Enter a non-empty serial device path"
+      "invalid_serial_path": "Enter a non-empty serial device path",
+      "slave_already_added": "This slave address is already used on this connection",
+      "no_slaves": "Add at least one slave address"
     },
     "abort": {
-      "already_configured": "This slave device is already configured"
+      "already_configured": "This connection is already configured"
     }
   },
   "options": {
@@ -63,6 +64,59 @@
         "title": "Symi Modbus Options",
         "data": {
           "scan_interval": "Scan interval (seconds)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "switch": {
+      "coil": {
+        "name": "线路 {line}"
+      }
+    }
+  },
+  "services": {
+    "write_coil": {
+      "name": "Write coil",
+      "description": "Write a coil value to a Modbus device.",
+      "fields": {
+        "address": {
+          "name": "Address",
+          "description": "Coil address."
+        },
+        "slave": {
+          "name": "Slave",
+          "description": "Slave unit ID."
+        },
+        "state": {
+          "name": "State",
+          "description": "Value to write."
+        },
+        "hub": {
+          "name": "Hub",
+          "description": "Entry title shown in Settings. Leave empty when only one connection is configured."
+        }
+      }
+    },
+    "write_register": {
+      "name": "Write register",
+      "description": "Write a register value. Not supported by this device profile.",
+      "fields": {
+        "address": {
+          "name": "Address",
+          "description": "Register address."
+        },
+        "value": {
+          "name": "Value",
+          "description": "Value to write."
+        },
+        "slave": {
+          "name": "Slave",
+          "description": "Slave unit ID."
+        },
+        "hub": {
+          "name": "Hub",
+          "description": "Entry title shown in Settings."
         }
       }
     }

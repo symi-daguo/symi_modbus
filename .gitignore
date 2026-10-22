@@ -27,3 +27,8 @@ ENV/
 
 # Local release artifacts (build manually for GitHub Release upload)
 *.zip
+
+# Test caches
+.pytest_cache/
+.coverage
+htmlcov/
