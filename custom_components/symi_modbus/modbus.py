@@ -23,7 +23,7 @@ from .const import (
     CONF_PORT,
     CONF_SCAN_INTERVAL,
     CONF_SERIAL,
-    CONF_SLAVES,
+    CONF_SLAVE,
     CONF_STOPBITS,
     CONF_TCP,
     CONF_TYPE,
@@ -31,6 +31,7 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     FRAME_MBAP,
     FRAME_RTU,
+    SUBENTRY_SLAVE,
 )
 from .connection import ModbusConnection
 from .frames import (
@@ -142,8 +143,10 @@ class ModbusHub:
 
     @property
     def coil_count(self) -> int:
-        """Return the number of coils exposed per slave."""
-        return self._coil_count
+        """Return the largest number of coils one of the slaves has."""
+        if not self._slaves:
+            return self._coil_count
+        return max(options["count"] for options in self._slaves.values())
 
     @property
     def slaves(self) -> dict[int, dict]:
@@ -239,10 +242,10 @@ class ModbusHub:
         )
 
     def register_slaves(self, slaves: dict[int | str, dict]) -> None:
-        """Register every slave of this hub.
+        """Register every slave of this master.
 
-        Slave keys are stored as strings in the config entry, so they are
-        normalised to integers here.
+        The keys may be strings, because that is how the config entry stores
+        them.
         """
         for slave, options in slaves.items():
             self.register_slave(
@@ -254,7 +257,18 @@ class ModbusHub:
     async def async_setup(self) -> bool:
         """Set up the modbus hub."""
         _LOGGER.debug("Setting up Modbus hub %s (%s)", self._name, self._type)
-        self.register_slaves(self._config.get(CONF_SLAVES, {}))
+
+        self.register_slaves(
+            {
+                int(subentry.data[CONF_SLAVE]): {
+                    "start": int(subentry.data.get("start", 0)),
+                    "count": int(
+                        subentry.data.get(CONF_COIL_COUNT, DEFAULT_COIL_COUNT)
+                    ),
+                }
+                for subentry in self._entry.get_subentries_of_type(SUBENTRY_SLAVE)
+            }
+        )
 
         self._unsub_poll = async_track_time_interval(
             self._hass,

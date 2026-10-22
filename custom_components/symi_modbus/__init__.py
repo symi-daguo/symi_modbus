@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import TypeAlias
 
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
@@ -16,11 +18,27 @@ from .const import (
     ATTR_SLAVE,
     ATTR_STATE,
     ATTR_VALUE,
+    CONF_BRAND,
+    CONF_BAUDRATE,
+    CONF_BYTESIZE,
+    CONF_COIL_COUNT,
+    CONF_PANEL_ENTITIES,
+    CONF_PANEL_IDS,
+    CONF_PARITY,
+    CONF_PORT,
+    CONF_RELAY_ENTITIES,
+    CONF_SLAVE,
+    CONF_STOPBITS,
     DOMAIN,
     SERVICE_WRITE_COIL,
     SERVICE_WRITE_REGISTER,
+    SUBENTRY_LINKAGE,
+    SUBENTRY_PANEL,
+    SUBENTRY_SLAVE,
 )
+from .linkage import LinkageGroup
 from .modbus import ModbusHub
+from .panels.manager import PanelManager
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -28,11 +46,34 @@ PLATFORMS: list[Platform] = [Platform.SWITCH]
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
-# The hub of an entry is kept in its runtime data.
+# The first coil of a slave.
+CONF_COIL_START = "start"
+
+
+@dataclass
+class SymiModbusRuntimeData:
+    """The parts of an entry that are alive while the entry is loaded."""
+
+    hub: ModbusHub
+    """The Modbus master with its connection and its polling."""
+
+    panels: PanelManager
+    """The panel buses with the wall panels behind them."""
+
+    linkages: list[LinkageGroup] = field(default_factory=list)
+    """The links between the panel buttons and the Modbus coils."""
+
+
+# The runtime data of an entry is kept in its runtime data.
 SymiModbusConfigEntry: TypeAlias = ConfigEntry
 
+
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload the config entry when options change (e.g. scan interval)."""
+    """Reload the config entry when something changes.
+
+    Adding, changing or removing a subentry updates the entry, so the whole
+    entry is set up again with the new layout.
+    """
     await hass.config_entries.async_reload(entry.entry_id)
 
 
@@ -51,11 +92,36 @@ async def async_setup_entry(hass: HomeAssistant, entry: SymiModbusConfigEntry) -
     if not await hub.async_setup():
         return False
 
-    entry.runtime_data = hub
+    panels = PanelManager(hass, entry.entry_id)
+    for subentry in entry.get_subentries_of_type(SUBENTRY_PANEL):
+        await panels.async_add_bus(
+            subentry.subentry_id,
+            port=str(subentry.data[CONF_PORT]),
+            brand=str(subentry.data[CONF_BRAND]),
+            panel_ids=[int(panel) for panel in subentry.data.get(CONF_PANEL_IDS, [])],
+            baudrate=int(subentry.data.get(CONF_BAUDRATE, 9600)),
+            bytesize=int(subentry.data.get(CONF_BYTESIZE, 8)),
+            parity=str(subentry.data.get(CONF_PARITY, "N")),
+            stopbits=int(subentry.data.get(CONF_STOPBITS, 1)),
+        )
+
+    entry.runtime_data = SymiModbusRuntimeData(hub=hub, panels=panels)
     _LOGGER.debug("Symi Modbus forwarding platforms for %s", entry.entry_id)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     _LOGGER.debug("Symi Modbus platforms ready for %s", entry.entry_id)
+
+    # The links start after the entities exist, so the state of the entities
+    # is known when the links begin to watch them.
+    for subentry in entry.get_subentries_of_type(SUBENTRY_LINKAGE):
+        group = LinkageGroup(
+            hass,
+            [str(entity) for entity in subentry.data.get(CONF_PANEL_ENTITIES, [])],
+            [str(entity) for entity in subentry.data.get(CONF_RELAY_ENTITIES, [])],
+            title=subentry.title,
+        )
+        await group.async_start()
+        entry.runtime_data.linkages.append(group)
 
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
@@ -64,42 +130,68 @@ async def async_setup_entry(hass: HomeAssistant, entry: SymiModbusConfigEntry) -
 
 async def async_unload_entry(hass: HomeAssistant, entry: SymiModbusConfigEntry) -> bool:
     """Unload a config entry."""
-    hub: ModbusHub | None = entry.runtime_data
+    runtime: SymiModbusRuntimeData | None = entry.runtime_data
 
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
-    if unload_ok and hub is not None:
-        await hub.async_stop()
+    if unload_ok and runtime is not None:
+        for group in runtime.linkages:
+            await group.async_stop()
+        await runtime.panels.async_stop()
+        await runtime.hub.async_stop()
 
     return unload_ok
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Migrate an old entry (one slave per entry) to the multi-slave layout."""
-    if entry.version >= 2:
+    """Migrate an old entry to the layout with subentries.
+
+    Version 1 held a single slave on the entry, version 2 held a list of
+    slaves on the entry. Version 3 keeps every slave as a subentry, so the
+    user can add, change and remove them on their own.
+    """
+    if entry.version >= 3:
         return True
 
     _LOGGER.debug("Migrating %s from version %s", entry.title, entry.version)
 
     slaves = entry.data.get("slaves")
-    if slaves is None:
+    if entry.version < 2:
         # Version 1 stored a single slave id on the entry itself.
         slave = entry.data.get("slave", 0x0A)
         slaves = {str(int(slave)): {"start": 0, "count": 32}}
 
-    new_data = {**entry.data, "slaves": slaves}
+    new_data = {**entry.data}
+    new_data.pop("slaves", None)
     new_data.pop("slave", None)
+    hass.config_entries.async_update_entry(entry, data=new_data, version=3)
 
-    hass.config_entries.async_update_entry(entry, data=new_data, version=2)
+    for key, options in (slaves or {}).items():
+        slave = int(key)
+        data = {
+            CONF_SLAVE: slave,
+            CONF_COIL_START: int(options.get("start", 0)),
+            CONF_COIL_COUNT: int(options.get("count", 32)),
+        }
+        hass.config_entries.async_add_subentry(
+            entry,
+            ConfigSubentry(
+                data=MappingProxyType(data),
+                subentry_type=SUBENTRY_SLAVE,
+                title=f"Slave {slave:02X}",
+                unique_id=str(slave),
+            ),
+        )
+
     return True
 
 
 def _find_hub(hass: HomeAssistant, hub_name: str | None) -> ModbusHub | None:
     """Find the hub matching an entry title, or the only hub when unset."""
     hubs = [
-        entry.runtime_data
+        entry.runtime_data.hub
         for entry in hass.config_entries.async_entries(DOMAIN)
-        if isinstance(entry.runtime_data, ModbusHub)
+        if isinstance(entry.runtime_data, SymiModbusRuntimeData)
     ]
     if not hubs:
         return None

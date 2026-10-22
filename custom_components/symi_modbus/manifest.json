@@ -13,8 +13,8 @@
     "pyserial>=3.5",
     "pyserial-asyncio-fast>=0.16"
   ],
-  "homeassistant": "2024.6.0",
-  "version": "2.1.1",
+  "homeassistant": "2025.3.0",
+  "version": "2.2.0",
   "icon": "mdi:toggle-switch",
   "categories": [
     "diy_makers"

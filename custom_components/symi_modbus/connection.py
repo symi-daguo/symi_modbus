@@ -28,7 +28,7 @@ SERIAL_POST_WRITE_DELAY = 0.02
 MAX_FRAME_SIZE = 260
 
 
-def _serial_bytesize(value: int) -> int:
+def serial_bytesize(value: int) -> int:
     """Map a configured data-bit count to the pyserial constant."""
     return {
         5: serial.FIVEBITS,
@@ -38,7 +38,7 @@ def _serial_bytesize(value: int) -> int:
     }.get(int(value), serial.EIGHTBITS)
 
 
-def _serial_parity(value: str) -> int:
+def serial_parity(value: str) -> int:
     """Map a configured parity letter to the pyserial constant."""
     normalized = (value or "N").strip().upper()
     if normalized in ("N", "NONE"):
@@ -50,7 +50,7 @@ def _serial_parity(value: str) -> int:
     return serial.PARITY_NONE
 
 
-def _serial_stopbits(value: int) -> float:
+def serial_stopbits(value: int) -> float:
     """Map a configured stop-bit count to the pyserial constant."""
     return serial.STOPBITS_TWO if int(value) == 2 else serial.STOPBITS_ONE
 
@@ -134,9 +134,9 @@ class ModbusConnection:
             serial_asyncio.open_serial_connection(
                 url=str(self._port),
                 baudrate=self._baudrate,
-                bytesize=_serial_bytesize(self._bytesize),
-                parity=_serial_parity(self._parity),
-                stopbits=_serial_stopbits(self._stopbits),
+                bytesize=serial_bytesize(self._bytesize),
+                parity=serial_parity(self._parity),
+                stopbits=serial_stopbits(self._stopbits),
             ),
             CONNECT_TIMEOUT,
         )

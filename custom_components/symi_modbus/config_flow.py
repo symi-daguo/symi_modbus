@@ -3,33 +3,45 @@ from __future__ import annotations
 
 import logging
 import re
-
 import serial.tools.list_ports
 import voluptuous as vol
 from homeassistant import config_entries
+from homeassistant.config_entries import ConfigSubentryFlow, SubentryFlowResult
 from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.selector import (
+    EntitySelector,
+    EntitySelectorConfig,
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
 )
 from serial.tools.list_ports_common import ListPortInfo
 
 from .const import (
-    ADD_MORE_SLAVES,
+    BRAND_CLOWIRE,
+    BRAND_LF,
+    BRAND_SYMI,
     CONF_BAUDRATE,
     CONF_BYTESIZE,
+    CONF_BRAND,
+    CONF_BUTTONS,
     CONF_COIL_COUNT,
     CONF_FRAME,
     CONF_HOST,
     CONF_NAME,
+    CONF_PANEL_ENTITIES,
+    CONF_PANEL_IDS,
     CONF_PARITY,
     CONF_PORT,
+    CONF_RELAY_ENTITIES,
     CONF_SCAN_INTERVAL,
     CONF_SERIAL,
     CONF_SLAVE,
-    CONF_SLAVES,
     CONF_STOPBITS,
     CONF_TCP,
     CONF_TYPE,
@@ -38,10 +50,14 @@ from .const import (
     DEFAULT_SLAVE,
     DEFAULT_TCP_PORT,
     DOMAIN,
-    MAX_COIL_COUNT,
     FRAME_MBAP,
     FRAME_RTU,
+    MAX_COIL_COUNT,
+    MAX_PANEL_BUTTONS,
     SERIAL_PORT_MANUAL_VALUE,
+    SUBENTRY_LINKAGE,
+    SUBENTRY_PANEL,
+    SUBENTRY_SLAVE,
 )
 from .connection import ModbusConnection
 from .frames import FUNCTION_READ_COILS, build_read_request
@@ -80,6 +96,69 @@ SERIAL_PARAMS_SCHEMA = vol.Schema(
 SERIAL_MANUAL_PATH_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_PORT): cv.string,
+    }
+)
+
+# The first coil of a slave, most devices start at zero.
+CONF_COIL_START = "start"
+
+SLAVE_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_SLAVE, default=DEFAULT_SLAVE): NumberSelector(
+            NumberSelectorConfig(min=0, max=247, mode=NumberSelectorMode.BOX)
+        ),
+        vol.Optional(CONF_COIL_START, default=0): NumberSelector(
+            NumberSelectorConfig(min=0, max=65535, mode=NumberSelectorMode.BOX)
+        ),
+        vol.Optional(CONF_COIL_COUNT, default=DEFAULT_COIL_COUNT): NumberSelector(
+            NumberSelectorConfig(min=1, max=MAX_COIL_COUNT, mode=NumberSelectorMode.BOX)
+        ),
+    }
+)
+
+PANEL_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_BRAND, default=BRAND_SYMI): SelectSelector(
+            SelectSelectorConfig(
+                options=[
+                    {"value": BRAND_SYMI, "label": "Symi (亖米)"},
+                    {"value": BRAND_CLOWIRE, "label": "Clowire (克伦威尔)"},
+                    {"value": BRAND_LF, "label": "LF (拉斐)"},
+                ],
+                mode=SelectSelectorMode.DROPDOWN,
+            )
+        ),
+        vol.Required(CONF_PORT): cv.string,
+        vol.Optional(CONF_BAUDRATE, default=9600): cv.positive_int,
+        vol.Optional(CONF_BYTESIZE, default=8): vol.In([5, 6, 7, 8]),
+        vol.Optional(CONF_PARITY, default="N"): vol.In(["E", "O", "N", "None"]),
+        vol.Optional(CONF_STOPBITS, default=1): vol.In([1, 2]),
+        vol.Required("panel_start", default=1): NumberSelector(
+            NumberSelectorConfig(min=1, max=247, mode=NumberSelectorMode.BOX)
+        ),
+        vol.Required("panel_count", default=1): NumberSelector(
+            NumberSelectorConfig(min=1, max=64, mode=NumberSelectorMode.BOX)
+        ),
+        vol.Optional(CONF_BUTTONS, default=MAX_PANEL_BUTTONS): NumberSelector(
+            NumberSelectorConfig(min=1, max=MAX_PANEL_BUTTONS, mode=NumberSelectorMode.BOX)
+        ),
+    }
+)
+
+LINKAGE_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_PANEL_ENTITIES, default=list): EntitySelector(
+            EntitySelectorConfig(
+                multiple=True,
+                filter={"domain": "switch", "integration": DOMAIN},
+            )
+        ),
+        vol.Required(CONF_RELAY_ENTITIES, default=list): EntitySelector(
+            EntitySelectorConfig(
+                multiple=True,
+                filter={"domain": "switch", "integration": DOMAIN},
+            )
+        ),
     }
 )
 
@@ -129,27 +208,63 @@ def _format_serial_port_label(info: ListPortInfo) -> str:
     return text[:120]
 
 
+def _entity_kind(hass, entity_id: str, entry_id: str) -> str | None:
+    """Return whether an entity is a panel button or a Modbus coil."""
+    registry = er.async_get(hass)
+    registry_entry = registry.async_get(entity_id)
+    if registry_entry is None:
+        return None
+    if registry_entry.config_entry_id != entry_id:
+        return None
+    unique_id = registry_entry.unique_id or ""
+    if "_panel_" in unique_id:
+        return "panel"
+    return "coil"
+
+
+def _friendly_name(hass, entity_id: str) -> str:
+    """Return the name of an entity as it is shown in the interface."""
+    state = hass.states.get(entity_id)
+    if state is not None and state.name:
+        return state.name
+    return entity_id
+
+
 class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Symi Modbus.
 
     One config entry describes one Modbus master (a serial port or a TCP
-    endpoint) together with the slaves that hang behind it.
+    endpoint). The slaves behind it, the wall panels and the links between the
+    panel buttons and the coils are subentries of that entry, so the user can
+    add, change and remove them on their own.
     """
 
-    VERSION = 2
+    VERSION = 3
     CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL
 
     def __init__(self) -> None:
         """Initialize the config flow."""
         self._connection_type: str | None = None
         self._connection_data: dict = {}
-        self._slaves: dict[int, dict] = {}
+        self._slave: dict | None = None
 
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> SymiModbusOptionsFlow:
         """Get the options flow for this handler."""
         return SymiModbusOptionsFlow()
+
+    @classmethod
+    @callback
+    def async_get_supported_subentry_types(
+        cls, config_entry: config_entries.ConfigEntry
+    ) -> dict[str, type[ConfigSubentryFlow]]:
+        """Return the subentry types this integration supports."""
+        return {
+            SUBENTRY_SLAVE: SlaveSubentryFlow,
+            SUBENTRY_PANEL: PanelSubentryFlow,
+            SUBENTRY_LINKAGE: LinkageSubentryFlow,
+        }
 
     async def async_step_user(self, user_input: dict | None = None) -> config_entries.ConfigFlowResult:
         """Handle the initial step - select connection type."""
@@ -253,55 +368,25 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_slave(self, user_input: dict | None = None) -> config_entries.ConfigFlowResult:
-        """Add a slave to this master.
+        """Ask for the first slave of this master.
 
-        The form carries the slave address and a checkbox that asks for one
-        more slave, so adding several slaves takes a single step per slave.
+        More slaves are added on the page of the config entry.
         """
         if user_input is not None:
-            slave = int(user_input[CONF_SLAVE])
-            count = int(user_input.get(CONF_COIL_COUNT, DEFAULT_COIL_COUNT))
-            if slave in self._slaves:
-                return self.async_show_form(
-                    step_id="slave",
-                    data_schema=self._slave_schema(user_input),
-                    errors={"base": "slave_already_added"},
-                )
-            self._slaves[slave] = {"start": 0, "count": count}
-
-            if not user_input.get(ADD_MORE_SLAVES):
-                return await self._async_create_entry()
-            return await self.async_step_slave()
+            self._slave = dict(user_input)
+            return await self._async_create_entry()
 
         return self.async_show_form(
             step_id="slave",
-            data_schema=self._slave_schema(),
-        )
-
-    def _slave_schema(self, user_input: dict | None = None) -> vol.Schema:
-        """Build the schema of the slave step."""
-        add_more = bool((user_input or {}).get(ADD_MORE_SLAVES))
-        count = int((user_input or {}).get(CONF_COIL_COUNT, DEFAULT_COIL_COUNT))
-        return vol.Schema(
-            {
-                vol.Required(CONF_SLAVE, default=DEFAULT_SLAVE): NumberSelector(
-                    NumberSelectorConfig(min=0, max=247, mode=NumberSelectorMode.BOX)
-                ),
-                vol.Optional(CONF_COIL_COUNT, default=count): NumberSelector(
-                    NumberSelectorConfig(
-                        min=1, max=MAX_COIL_COUNT, mode=NumberSelectorMode.BOX
-                    )
-                ),
-                vol.Optional(ADD_MORE_SLAVES, default=add_more): cv.boolean,
-            }
+            data_schema=SLAVE_SCHEMA,
         )
 
     async def _async_create_entry(self) -> config_entries.ConfigFlowResult:
-        """Create the config entry for this master and its slaves."""
-        if not self._slaves:
+        """Create the config entry for this master and its first slave."""
+        if self._slave is None:
             return self.async_show_form(
                 step_id="slave",
-                data_schema=self._slave_schema(),
+                data_schema=SLAVE_SCHEMA,
                 errors={"base": "no_slaves"},
             )
 
@@ -329,26 +414,33 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 else self._connection_data.get(CONF_FRAME, FRAME_MBAP)
             ),
             CONF_SCAN_INTERVAL: DEFAULT_SCAN_INTERVAL,
-            CONF_COIL_COUNT: max(
-                options["count"] for options in self._slaves.values()
-            ),
-            CONF_SLAVES: {str(slave): options for slave, options in self._slaves.items()},
             **self._connection_data,
         }
 
-        if not await self._async_test_connection(entry_data):
+        if not await self._async_test_connection(entry_data, self._slave):
             return self.async_show_form(
                 step_id="slave",
-                data_schema=self._slave_schema(),
+                data_schema=SLAVE_SCHEMA,
                 errors={"base": "cannot_connect"},
             )
 
-        return self.async_create_entry(title=name, data=entry_data)
+        slave = int(self._slave[CONF_SLAVE])
+        subentries = [
+            {
+                "data": self._slave,
+                "subentry_type": SUBENTRY_SLAVE,
+                "title": f"Slave {slave:02X}",
+                "unique_id": str(slave),
+            }
+        ]
 
-    async def _async_test_connection(self, entry_data: dict) -> bool:
-        """Ask the first slave for its coils before the entry is created."""
-        slave = int(next(iter(entry_data[CONF_SLAVES])))
-        options = entry_data[CONF_SLAVES][str(slave)]
+        return self.async_create_entry(
+            title=name, data=entry_data, subentries=subentries
+        )
+
+    async def _async_test_connection(self, entry_data: dict, slave_data: dict) -> bool:
+        """Ask the slave for its coils before the entry is created."""
+        slave = int(slave_data[CONF_SLAVE])
 
         connection = ModbusConnection(
             connection_type=entry_data[CONF_TYPE],
@@ -365,8 +457,8 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             request = build_read_request(
                 slave,
                 FUNCTION_READ_COILS,
-                int(options.get("start", 0)),
-                int(options.get("count", DEFAULT_COIL_COUNT)),
+                int(slave_data.get(CONF_COIL_START, 0)),
+                int(slave_data.get(CONF_COIL_COUNT, DEFAULT_COIL_COUNT)),
                 entry_data[CONF_FRAME],
             )
             payload = await connection.async_request(request, FUNCTION_READ_COILS)
@@ -377,6 +469,205 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             await connection.async_close()
 
         return payload is not None
+
+
+class SlaveSubentryFlow(ConfigSubentryFlow):
+    """Add and change a Modbus slave behind the master."""
+
+    async def async_step_user(self, user_input: dict | None = None) -> SubentryFlowResult:
+        """Add a slave."""
+        if user_input is not None:
+            slave = int(user_input[CONF_SLAVE])
+            if self._slave_taken(slave, None):
+                return self.async_show_form(
+                    step_id="user",
+                    data_schema=SLAVE_SCHEMA,
+                    errors={"base": "slave_already_added"},
+                )
+            return self.async_create_entry(
+                title=f"Slave {slave:02X}",
+                data=user_input,
+                unique_id=str(slave),
+            )
+
+        return self.async_show_form(step_id="user", data_schema=SLAVE_SCHEMA)
+
+    async def async_step_reconfigure(self, user_input: dict | None = None) -> SubentryFlowResult:
+        """Change a slave."""
+        entry = self._get_entry()
+        subentry = self._get_reconfigure_subentry()
+
+        if user_input is not None:
+            slave = int(user_input[CONF_SLAVE])
+            if self._slave_taken(slave, subentry.subentry_id):
+                return self.async_show_form(
+                    step_id="reconfigure",
+                    data_schema=SLAVE_SCHEMA,
+                    errors={"base": "slave_already_added"},
+                )
+            return self.async_update_and_abort(
+                entry,
+                subentry,
+                title=f"Slave {slave:02X}",
+                data=user_input,
+                unique_id=str(slave),
+            )
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=self.add_suggested_values_to_schema(
+                SLAVE_SCHEMA, subentry.data
+            ),
+        )
+
+    def _slave_taken(self, slave: int, own_subentry_id: str | None) -> bool:
+        """Return whether another slave of this master uses the address."""
+        for subentry in self._get_entry().get_subentries_of_type(SUBENTRY_SLAVE):
+            if subentry.subentry_id == own_subentry_id:
+                continue
+            if int(subentry.data.get(CONF_SLAVE, -1)) == slave:
+                return True
+        return False
+
+
+class PanelSubentryFlow(ConfigSubentryFlow):
+    """Add and change a bus with wall panels."""
+
+    async def async_step_user(self, user_input: dict | None = None) -> SubentryFlowResult:
+        """Add a panel bus."""
+        if user_input is not None:
+            data = self._build_data(user_input)
+            return self.async_create_entry(
+                title=self._build_title(data),
+                data=data,
+            )
+
+        return self.async_show_form(step_id="user", data_schema=PANEL_SCHEMA)
+
+    async def async_step_reconfigure(self, user_input: dict | None = None) -> SubentryFlowResult:
+        """Change a panel bus."""
+        entry = self._get_entry()
+        subentry = self._get_reconfigure_subentry()
+
+        if user_input is not None:
+            data = self._build_data(user_input)
+            return self.async_update_and_abort(
+                entry,
+                subentry,
+                title=self._build_title(data),
+                data=data,
+            )
+
+        suggested = dict(subentry.data)
+        panel_ids = suggested.get(CONF_PANEL_IDS) or [1]
+        suggested["panel_start"] = min(panel_ids)
+        suggested["panel_count"] = len(panel_ids)
+        suggested.pop(CONF_PANEL_IDS, None)
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=self.add_suggested_values_to_schema(
+                PANEL_SCHEMA, suggested
+            ),
+        )
+
+    @staticmethod
+    def _build_data(user_input: dict) -> dict:
+        """Turn the form values into the data of the subentry."""
+        data = dict(user_input)
+        start = int(data.pop("panel_start", 1))
+        count = int(data.pop("panel_count", 1))
+        data[CONF_PANEL_IDS] = list(range(start, start + count))
+        return data
+
+    @staticmethod
+    def _build_title(data: dict) -> str:
+        """Return the title of the panel bus."""
+        brand = str(data.get(CONF_BRAND, ""))
+        port = data.get(CONF_PORT, "")
+        return f"{brand.upper()} {port}"
+
+
+class LinkageSubentryFlow(ConfigSubentryFlow):
+    """Add and change a link between panel buttons and Modbus coils."""
+
+    async def async_step_user(self, user_input: dict | None = None) -> SubentryFlowResult:
+        """Add a link."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            errors = self._validate(user_input)
+            if not errors:
+                return self.async_create_entry(
+                    title=self._build_title(user_input),
+                    data={
+                        CONF_PANEL_ENTITIES: list(user_input[CONF_PANEL_ENTITIES]),
+                        CONF_RELAY_ENTITIES: list(user_input[CONF_RELAY_ENTITIES]),
+                    },
+                )
+
+        return self.async_show_form(
+            step_id="user",
+            data_schema=LINKAGE_SCHEMA,
+            errors=errors,
+        )
+
+    async def async_step_reconfigure(self, user_input: dict | None = None) -> SubentryFlowResult:
+        """Change a link."""
+        entry = self._get_entry()
+        subentry = self._get_reconfigure_subentry()
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            errors = self._validate(user_input)
+            if not errors:
+                return self.async_update_and_abort(
+                    entry,
+                    subentry,
+                    title=self._build_title(user_input),
+                    data={
+                        CONF_PANEL_ENTITIES: list(user_input[CONF_PANEL_ENTITIES]),
+                        CONF_RELAY_ENTITIES: list(user_input[CONF_RELAY_ENTITIES]),
+                    },
+                )
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=self.add_suggested_values_to_schema(
+                LINKAGE_SCHEMA, subentry.data
+            ),
+            errors=errors,
+        )
+
+    def _validate(self, user_input: dict) -> dict[str, str]:
+        """Check that the picked entities are of the right kind."""
+        errors: dict[str, str] = {}
+
+        panels = list(user_input.get(CONF_PANEL_ENTITIES) or [])
+        relays = list(user_input.get(CONF_RELAY_ENTITIES) or [])
+
+        if not panels or not relays:
+            errors["base"] = "linkage_empty"
+            return errors
+
+        entry_id = self._get_entry().entry_id
+        for entity_id in panels:
+            if _entity_kind(self.hass, entity_id, entry_id) != "panel":
+                errors[CONF_PANEL_ENTITIES] = "not_a_panel_button"
+                break
+        for entity_id in relays:
+            if _entity_kind(self.hass, entity_id, entry_id) != "coil":
+                errors[CONF_RELAY_ENTITIES] = "not_a_coil"
+                break
+
+        return errors
+
+    def _build_title(self, user_input: dict) -> str:
+        """Return the title of the link."""
+        panels = list(user_input.get(CONF_PANEL_ENTITIES) or [])
+        relays = list(user_input.get(CONF_RELAY_ENTITIES) or [])
+        panel = _friendly_name(self.hass, panels[0]) if panels else "?"
+        relay = _friendly_name(self.hass, relays[0]) if relays else "?"
+        return f"{panel} → {relay}"
 
 
 class SymiModbusOptionsFlow(config_entries.OptionsFlow):
@@ -395,7 +686,7 @@ class SymiModbusOptionsFlow(config_entries.OptionsFlow):
         options = {
             vol.Optional(CONF_SCAN_INTERVAL, default=scan_default): NumberSelector(
                 NumberSelectorConfig(
-                    min=1, max=3600, step=1, mode=NumberSelectorMode.BOX
+                    min=0.1, max=3600, step=0.1, mode=NumberSelectorMode.BOX
                 )
             ),
         }

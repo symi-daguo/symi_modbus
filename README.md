@@ -1,27 +1,40 @@
 # Symi Modbus
 
-Home Assistant custom integration for Symi Modbus relay modules, over **serial RTU** or **TCP**.
+Home Assistant custom integration for Symi Modbus relay modules and Symi wall panels, over
+**serial RTU** or **TCP**.
 
-One config entry describes **one Modbus master** (a serial port or a TCP endpoint) together with
-**all the slaves behind it**. Every slave becomes its own device with one switch entity per coil.
+One config entry describes **one Modbus master** (a serial port or a TCP endpoint). Everything
+that belongs to it is a **subentry** that can be added, changed and removed on its own:
+
+- **Modbus slaves** – every slave becomes its own device with one switch entity per coil.
+- **Wall panel buses** – the panels of one brand on one serial line, one switch entity per button.
+- **Button links** – a panel button and the relays it drives, the state is shared in both
+  directions.
 
 ## Requirements
 
 | Item | Value |
 |------|--------|
-| Version | **2.1.1** |
-| Home Assistant | **2024.6.0** or newer (developed against 2026.10.2, verified on 2026.7.4 and 2026.9.1) |
+| Version | **2.2.0** |
+| Home Assistant | **2025.3.0** or newer (developed against 2026.10.2, verified on 2026.7.4) |
 | Python dependency | `pyserial`, `pyserial-asyncio-fast` (declared in `manifest.json`) |
+
+Home Assistant 2025.3 is the first release with **config subentries**, the mechanism that lets the
+slaves, the panels and the links be managed separately inside one entry.
 
 ## Features
 
 - **Serial RTU** and **TCP**, with the frame format chosen per connection:
   `Modbus TCP (MBAP)` or `Modbus RTU over TCP` for serial-to-ethernet gateways.
   A serial port always speaks RTU, the MBAP header only exists on TCP.
-- **One master, many slaves**: add several slave addresses to the same connection in a single
-  configuration flow. Each slave is polled on its own and gets its own device in Home Assistant.
+- **One master, many slaves**: add several slave addresses to the same connection. Each slave is
+  polled on its own and gets its own device in Home Assistant.
 - **Coil count per slave**, so a 16 channel module does not create 16 switches that never
   change.
+- **Wall panels**: the panels of the **Symi**, **Clowire** and **LF** brands are read on their own
+  serial line and every button becomes a switch entity.
+- **Button links**: a panel button can drive one or more relays, and a relay can light up on one
+  or more panel buttons.
 - **Persistent connection** with automatic reconnect. The link is kept open between requests, so
   the device is not reset by opening the port over and over.
 - **Survives outages**: when the device reboots or the network drops, the entities turn
@@ -30,14 +43,15 @@ One config entry describes **one Modbus master** (a serial port or a TCP endpoin
   slave that stops answering is skipped for a few rounds instead of holding up the bus.
 - **Serial port picker**: detected ports are listed, a manual device path can be entered for
   anything that is not listed.
-- Polling interval configurable in the integration **Options**.
+- Polling interval configurable in the integration **Options**, fractional values are allowed.
 - **Quiet logging**: a failing link logs one error per outage instead of one per poll, and the
   recovery is reported once.
 
 ## Polling
 
 The scan interval is the period of **one round over all slaves of a master**, and it can be
-changed in the integration **Options**. The default is one second.
+changed in the integration **Options**. The default is one second, smaller values such as half a
+second are allowed.
 
 The slaves take turns, so the interval is shared between them:
 
@@ -45,6 +59,7 @@ The slaves take turns, so the interval is shared between them:
 |----------------------|--------------------|
 | 1                    | every 1 second      |
 | 5                    | every 200 ms        |
+| 10                   | every 100 ms        |
 
 A whole round of five slaves therefore finishes inside one second, and a single slave is
 asked once per second. The number of slaves per master is not limited.
@@ -55,6 +70,10 @@ device is read with a single frame.
 A slave that does not answer times out after 0.5 s. It is then skipped for a while, and the
 skip grows while it stays silent, so it cannot spend the timeout of every round. Its entities
 turn `unavailable` on their own, the other slaves keep their own timing and stay available.
+
+The panels are **event driven**, the buttons report themselves on the bus, so they are not
+polled. Only the frames that drive an indicator light are sent, and they go through a queue that
+keeps the order and leaves at least 50 ms between two commands, as the panel manuals ask.
 
 ## Installation
 
@@ -70,16 +89,55 @@ directory and restart.
 2. **TCP:** host, port and frame format. **Serial:** pick a detected port or enter a manual path,
    then set baud rate, data bits, parity and stop bits. The defaults are 9600 baud, 8 data bits,
    no parity and one stop bit.
-3. Enter the **slave address** (decimal, default 10 = `0x0A`) and the **coil count** of that
-   device. Tick *Add another slave* to add more slaves on the same connection, then enter the next
-   address.
-4. The entry is created with all slaves of that master.
+3. Enter the **slave address** (decimal, default 10 = `0x0A`), the **first coil** and the **coil
+   count** of that device.
+4. The entry is created with that slave.
+
+Everything else is managed on the page of the entry in **Settings → Devices & services**:
+
+| Button | What it does |
+|--------|--------------|
+| **Add slave** | Add another Modbus slave to this master. |
+| **Add panel bus** | Add the serial line with the wall panels, and pick the brand. |
+| **Add button link** | Link panel buttons to relays. |
+
+Every entry that is already there can be **changed** or **removed** on the same page.
 
 To use a second master (another serial port or another gateway), add the integration again. Each
 entry keeps its own connection, so the masters poll independently.
 
 The devices show up as `Serial /dev/ttyUSB0`, and their entities carry the slave address, for
-example `0A 线路 01`, so a device can be told apart by its link and by its slave address.
+example `0A Line 01`, so a device can be told apart by its link and by its slave address.
+
+## Wall panels
+
+A **panel bus** is one serial line with the panels of one brand. The brand decides which protocol
+is used, the same dialects the original Node-RED node speaks:
+
+| Brand | Protocol |
+|-------|----------|
+| Symi (亖米) | light weight framed protocol, `0x7E … 0x7D` with a CRC-8 |
+| Clowire (克伦威尔) | Modbus like with an extra frame tail `0xAA` behind the CRC |
+| LF (拉斐) | fixed eight byte frames, the indicator lights are a bit mask in register `0x1008` |
+
+Each panel on the bus gets its own device, each button its own switch entity. The state of the
+entity is the state of the indicator light: a press of the button turns the entity on, and
+writing the entity writes the indicator light back to the panel.
+
+The frames of the LF panels are written as a whole, so the integration keeps track of the state
+of every button of a panel. The LF panels also need to be put into the mode where the host owns
+the indicator lights, which the integration does when the bus starts.
+
+### Button links
+
+A **button link** binds panel buttons to relays. The state is shared in both directions:
+
+- a panel button that is switched on drives the relays of the link,
+- a relay that changes lights up the panel buttons of the link.
+
+One button can be linked to several relays, and one relay can be linked to several buttons, a
+link holds both groups. The link only reacts to a change, a target that already shows the wanted
+state is left alone, so no needless frames go on the bus.
 
 ## How a slave is read
 
@@ -145,7 +203,7 @@ and declares the state of every rule in `custom_components/symi_modbus/quality_s
 | `log-when-unavailable` | A slave that stops answering is logged once at the info level, and once when it answers again. |
 | `entity-unavailable` | The availability is tracked per slave, so a silent slave only makes its own entities unavailable. |
 | `has-entity-name` | The entities are named in the context of their device and carry the slave address. |
-| `runtime-data` | The hub is stored in `ConfigEntry.runtime_data`. |
+| `runtime-data` | The hub, the panel buses and the links are stored in `ConfigEntry.runtime_data`. |
 | `test-before-configure` | The config flow asks the first slave for its coils before the entry is created. |
 | `parallel-updates` | `PARALLEL_UPDATES = 0`, the slaves share one serial line. |
 | `unique-config-entry` | A connection can only be added once. |
@@ -158,13 +216,29 @@ docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
   sh -c "pip install pytest-asyncio -q && python -m pytest tests/ -q --asyncio-mode=auto"
 ```
 
-- `tests/` covers the frame encoding, the hub behaviour, the reconnect logic and the packaging.
+- `tests/` covers the frame encoding, the hub behaviour, the reconnect logic, the panel protocols
+  and the links.
 - `scripts/modbus_simulator.py` serves a fake Modbus slave on a TCP port or a pseudo terminal,
   which is handy to try the integration without hardware.
 - `scripts/verify_load.py` runs the hub against a simulated bus with several slaves and reports the
-  timing of every round, the availability per slave and the memory growth.
+  timing of every round, the availability per slave and the memory growth. It also measures the
+  panel side with a burst of four hundred button presses.
 
 ## Changelog
+
+### 2.2.0
+
+- The slaves, the wall panel buses and the button links become **subentries** of the config
+  entry, so they can be added, changed and removed on their own from the page of the entry.
+  The lowest supported Home Assistant version is 2025.3.0, the first release with subentries.
+- The **wall panels** of the **Symi**, **Clowire** and **LF** brands are supported. The brand
+  decides which protocol is used to read the buttons and to drive the indicator lights.
+- **Button links** keep a panel button and the relays it drives in sync, in both directions. One
+  button can drive several relays and one relay can light up on several buttons.
+- The scan interval accepts **fractional values**, so half a second is possible as well.
+- The frames that the integration sends to a panel are recognised as their own echo, so a button
+  press is not mistaken for a state change.
+- The brand images get an even larger corner radius.
 
 ### 2.1.1
 

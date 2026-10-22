@@ -44,23 +44,123 @@
       },
       "slave": {
         "title": "Modbus 从站地址",
-        "description": "本连接上设备的单元号，10 即 0x0A。线圈数量是该设备实际拥有的线圈数，32 路模块填 32。",
+        "description": "本连接上设备的单元号，10 即 0x0A。线圈数量是该设备实际拥有的线圈数，32 路模块填 32。之后可以在本集成页面继续添加从站。",
         "data": {
           "slave": "从站地址（十进制）",
-          "coil_count": "线圈数量",
-          "add_more_slaves": "再添加一个从站"
+          "start": "起始线圈",
+          "coil_count": "线圈数量"
         }
       }
     },
     "error": {
       "invalid_host": "请输入有效的主机名或 IP 地址",
       "invalid_serial_path": "请输入有效的串口设备路径",
-      "slave_already_added": "此从站地址在本连接上已被添加",
       "no_slaves": "请至少添加一个从站地址",
       "cannot_connect": "连接失败，请检查串口参数或从站地址"
     },
     "abort": {
       "already_configured": "此连接已配置"
+    }
+  },
+  "config_subentries": {
+    "slave": {
+      "entry_type": "Modbus 从站",
+      "initiate_flow": {
+        "user": "添加从站",
+        "reconfigure": "修改从站"
+      },
+      "step": {
+        "user": {
+          "title": "添加 Modbus 从站",
+          "description": "本连接上设备的单元号，10 即 0x0A。线圈数量是该设备实际拥有的线圈数，32 路模块填 32。",
+          "data": {
+            "slave": "从站地址（十进制）",
+            "start": "起始线圈",
+            "coil_count": "线圈数量"
+          }
+        },
+        "reconfigure": {
+          "title": "修改 Modbus 从站",
+          "data": {
+            "slave": "从站地址（十进制）",
+            "start": "起始线圈",
+            "coil_count": "线圈数量"
+          }
+        }
+      },
+      "error": {
+        "slave_already_added": "此从站地址在本连接上已被添加"
+      }
+    },
+    "panel": {
+      "entry_type": "面板总线",
+      "initiate_flow": {
+        "user": "添加面板总线",
+        "reconfigure": "修改面板总线"
+      },
+      "step": {
+        "user": {
+          "title": "添加面板总线",
+          "description": "面板所在的串口以及面板品牌。品牌决定用哪套协议读取按键和驱动指示灯。",
+          "data": {
+            "brand": "面板品牌",
+            "port": "串口设备",
+            "baudrate": "波特率",
+            "bytesize": "数据位",
+            "parity": "校验位",
+            "stopbits": "停止位",
+            "panel_start": "起始面板地址",
+            "panel_count": "面板数量",
+            "buttons": "每面板按键数"
+          }
+        },
+        "reconfigure": {
+          "title": "修改面板总线",
+          "data": {
+            "brand": "面板品牌",
+            "port": "串口设备",
+            "baudrate": "波特率",
+            "bytesize": "数据位",
+            "parity": "校验位",
+            "stopbits": "停止位",
+            "panel_start": "起始面板地址",
+            "panel_count": "面板数量",
+            "buttons": "每面板按键数"
+          }
+        }
+      },
+      "error": {
+        "invalid_panel_path": "请输入有效的串口设备路径"
+      }
+    },
+    "linkage": {
+      "entry_type": "按键关联",
+      "initiate_flow": {
+        "user": "添加按键关联",
+        "reconfigure": "修改按键关联"
+      },
+      "step": {
+        "user": {
+          "title": "把面板按键与继电器关联",
+          "description": "选择面板上的按键和 Modbus 从站的继电器。状态双向同步：按键控制继电器，继电器状态回写到按键指示灯。",
+          "data": {
+            "panel_entities": "面板按键",
+            "relay_entities": "Modbus 继电器"
+          }
+        },
+        "reconfigure": {
+          "title": "修改按键关联",
+          "data": {
+            "panel_entities": "面板按键",
+            "relay_entities": "Modbus 继电器"
+          }
+        }
+      },
+      "error": {
+        "linkage_empty": "请至少选择一个面板按键和一个继电器",
+        "not_a_panel_button": "所选实体不是本集成的面板按键",
+        "not_a_coil": "所选实体不是本集成的继电器"
+      }
     }
   },
   "options": {
@@ -69,7 +169,8 @@
         "title": "Symi Modbus 选项",
         "data": {
           "scan_interval": "轮询间隔（秒）"
-        }
+        },
+        "description": "一轮轮询所有从站所用的时间。每台从站每轮被问一次，所以两台从站之间的间隔等于轮询间隔除以从站数量。"
       }
     }
   },
@@ -77,6 +178,9 @@
     "switch": {
       "coil": {
         "name": "{slave} 线路 {line}"
+      },
+      "panel_button": {
+        "name": "按键 {button}"
       }
     }
   },

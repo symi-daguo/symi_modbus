@@ -12,7 +12,9 @@ from custom_components.symi_modbus.const import (
     CONF_HOST,
     CONF_NAME,
     CONF_SCAN_INTERVAL,
+    CONF_SLAVE,
     CONF_SLAVES,
+    SUBENTRY_SLAVE,
     CONF_TCP,
     CONF_PORT,
     CONF_TYPE,
@@ -31,6 +33,17 @@ from custom_components.symi_modbus.frames import (
 from custom_components.symi_modbus.modbus import ModbusHub
 
 
+class FakeSubentry:
+    """Minimal stand-in for a config subentry."""
+
+    def __init__(self, data: dict) -> None:
+        """Store the data of the subentry."""
+        self.data = data
+        self.subentry_id = "fake_subentry"
+        self.subentry_type = SUBENTRY_SLAVE
+        self.title = "fake"
+
+
 class FakeConfigEntry:
     """Minimal stand-in for a Home Assistant config entry."""
 
@@ -38,6 +51,22 @@ class FakeConfigEntry:
         """Store the entry data."""
         self.data = data
         self.options = options or {}
+        self.entry_id = "fake_entry"
+
+    def get_subentries_of_type(self, subentry_type: str) -> list[FakeSubentry]:
+        """Return the slaves of this entry as subentries."""
+        if subentry_type != SUBENTRY_SLAVE:
+            return []
+        return [
+            FakeSubentry(
+                {
+                    CONF_SLAVE: int(slave),
+                    "start": int(options.get("start", 0)),
+                    CONF_COIL_COUNT: int(options.get("count", 32)),
+                }
+            )
+            for slave, options in (self.data.get(CONF_SLAVES) or {}).items()
+        ]
 
 
 class FakeHass:
@@ -187,7 +216,6 @@ async def test_hub_polls_every_slave() -> None:
     )
     hub = ModbusHub(FakeHass(), entry)
     await hub.async_setup()
-    hub.register_slaves(entry.data[CONF_SLAVES])
 
     try:
         # The slaves take turns, so two polls cover both of them.
@@ -225,7 +253,6 @@ async def test_hub_survives_a_failing_slave() -> None:
     )
     hub = ModbusHub(FakeHass(), entry)
     await hub.async_setup()
-    hub.register_slaves(entry.data[CONF_SLAVES])
 
     try:
         await hub.async_poll_slaves()
@@ -264,7 +291,6 @@ async def test_hub_reconnects_after_the_link_drops(monkeypatch: pytest.MonkeyPat
     )
     hub = ModbusHub(FakeHass(), entry)
     await hub.async_setup()
-    hub.register_slaves(entry.data[CONF_SLAVES])
 
     availability: list[tuple[bool, int]] = []
     hub.add_availability_callback(
@@ -315,7 +341,6 @@ async def test_a_slave_that_answered_before_is_still_available() -> None:
     )
     hub = ModbusHub(FakeHass(), entry)
     await hub.async_setup()
-    hub.register_slaves(entry.data[CONF_SLAVES])
 
     try:
         # The slave answers before anyone listens.
@@ -379,7 +404,6 @@ async def test_the_slaves_take_turns() -> None:
     )
     hub = ModbusHub(FakeHass(), entry)
     await hub.async_setup()
-    hub.register_slaves(entry.data[CONF_SLAVES])
 
     try:
         asked: list[int] = []
@@ -417,7 +441,6 @@ async def test_a_silent_slave_does_not_affect_the_others() -> None:
     )
     hub = ModbusHub(FakeHass(), entry)
     await hub.async_setup()
-    hub.register_slaves(entry.data[CONF_SLAVES])
 
     availability: list[tuple[bool, int]] = []
     hub.add_availability_callback(lambda available, slave: availability.append((available, slave)))
@@ -481,7 +504,6 @@ async def test_hub_rebuilds_a_dropped_connection(monkeypatch: pytest.MonkeyPatch
     )
     hub = ModbusHub(FakeHass(), entry)
     await hub.async_setup()
-    hub.register_slaves(entry.data[CONF_SLAVES])
 
     try:
         await hub.async_poll_slaves()

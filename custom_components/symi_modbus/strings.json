@@ -44,23 +44,123 @@
       },
       "slave": {
         "title": "Modbus slave address",
-        "description": "The unit ID of the device on this connection, 10 is 0x0A. The coil count is the number of coils the device has, a 32 channel module uses 32.",
+        "description": "The unit ID of the device on this connection, 10 is 0x0A. The coil count is the number of coils the device has, a 32 channel module uses 32. More slaves can be added later on the page of this integration.",
         "data": {
           "slave": "Slave address (decimal)",
-          "coil_count": "Coil count",
-          "add_more_slaves": "Add another slave"
+          "start": "First coil",
+          "coil_count": "Coil count"
         }
       }
     },
     "error": {
       "invalid_host": "Enter a valid host name or IP address",
       "invalid_serial_path": "Enter a valid serial device path",
-      "slave_already_added": "This slave address is already used on this connection",
       "no_slaves": "Add at least one slave address",
       "cannot_connect": "Cannot connect, check the serial settings or the slave address"
     },
     "abort": {
       "already_configured": "This connection is already configured"
+    }
+  },
+  "config_subentries": {
+    "slave": {
+      "entry_type": "Modbus slave",
+      "initiate_flow": {
+        "user": "Add slave",
+        "reconfigure": "Change slave"
+      },
+      "step": {
+        "user": {
+          "title": "Add a Modbus slave",
+          "description": "The unit ID of a device on this connection, 10 is 0x0A. The coil count is the number of coils the device has, a 32 channel module uses 32.",
+          "data": {
+            "slave": "Slave address (decimal)",
+            "start": "First coil",
+            "coil_count": "Coil count"
+          }
+        },
+        "reconfigure": {
+          "title": "Change a Modbus slave",
+          "data": {
+            "slave": "Slave address (decimal)",
+            "start": "First coil",
+            "coil_count": "Coil count"
+          }
+        }
+      },
+      "error": {
+        "slave_already_added": "This slave address is already used on this connection"
+      }
+    },
+    "panel": {
+      "entry_type": "Wall panel bus",
+      "initiate_flow": {
+        "user": "Add panel bus",
+        "reconfigure": "Change panel bus"
+      },
+      "step": {
+        "user": {
+          "title": "Add a wall panel bus",
+          "description": "The serial line the panels are connected to, together with their brand. The brand decides which protocol is used to read the buttons and to drive the indicator lights.",
+          "data": {
+            "brand": "Panel brand",
+            "port": "Serial device",
+            "baudrate": "Baudrate",
+            "bytesize": "Bytesize",
+            "parity": "Parity",
+            "stopbits": "Stopbits",
+            "panel_start": "First panel address",
+            "panel_count": "Number of panels",
+            "buttons": "Buttons per panel"
+          }
+        },
+        "reconfigure": {
+          "title": "Change a wall panel bus",
+          "data": {
+            "brand": "Panel brand",
+            "port": "Serial device",
+            "baudrate": "Baudrate",
+            "bytesize": "Bytesize",
+            "parity": "Parity",
+            "stopbits": "Stopbits",
+            "panel_start": "First panel address",
+            "panel_count": "Number of panels",
+            "buttons": "Buttons per panel"
+          }
+        }
+      },
+      "error": {
+        "invalid_panel_path": "Enter a valid serial device path"
+      }
+    },
+    "linkage": {
+      "entry_type": "Button link",
+      "initiate_flow": {
+        "user": "Add button link",
+        "reconfigure": "Change button link"
+      },
+      "step": {
+        "user": {
+          "title": "Link a panel button to a relay",
+          "description": "Pick the buttons of the wall panels and the relays of the Modbus slaves. The state is shared in both directions, so a button drives the relays and the relays light up the buttons.",
+          "data": {
+            "panel_entities": "Panel buttons",
+            "relay_entities": "Modbus relays"
+          }
+        },
+        "reconfigure": {
+          "title": "Change a button link",
+          "data": {
+            "panel_entities": "Panel buttons",
+            "relay_entities": "Modbus relays"
+          }
+        }
+      },
+      "error": {
+        "linkage_empty": "Pick at least one panel button and one relay",
+        "not_a_panel_button": "This is not a panel button of this integration",
+        "not_a_coil": "This is not a relay of this integration"
+      }
     }
   },
   "options": {
@@ -69,7 +169,8 @@
         "title": "Symi Modbus Options",
         "data": {
           "scan_interval": "Scan interval (seconds)"
-        }
+        },
+        "description": "The time one round over all slaves takes. Every slave of the connection is asked once per round, so the interval between two slaves is the scan interval divided by the number of slaves."
       }
     }
   },
@@ -77,6 +178,9 @@
     "switch": {
       "coil": {
         "name": "{slave} Line {line}"
+      },
+      "panel_button": {
+        "name": "Button {button}"
       }
     }
   },

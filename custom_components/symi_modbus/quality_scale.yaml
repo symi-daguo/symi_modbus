@@ -8,7 +8,8 @@ rules:
     comment: >-
       The scan interval is the period of one round over all slaves of a master
       and defaults to one second, the slaves of a master share it. The relay
-      modules change state on a command, so the state is read often.
+      modules change state on a command, so the state is read often. The
+      wall panels are not polled at all, they report their buttons on the bus.
   brands: done
   common-modules:
     status: exempt
@@ -30,7 +31,10 @@ rules:
     comment: The integration provides no triggers.
   entity-event-setup:
     status: exempt
-    comment: The integration subscribes to nothing, it polls the device.
+    comment: >-
+      The Modbus entities are polled, they subscribe to nothing. The wall
+      panels report their buttons on the bus, which is read by the panel
+      connection of the entry and not by the entity.
   entity-unique-id: done
   has-entity-name: done
   runtime-data: done
