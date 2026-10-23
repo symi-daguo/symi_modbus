@@ -64,6 +64,7 @@ class SymiProtocol(PanelProtocol):
         state: bool,
         device_addr: int = 1,
         channel: int | None = None,
+        code: int | None = None,
     ) -> bytes:
         """Build the frame that drives the indicator light of a button.
 
@@ -88,7 +89,7 @@ class SymiProtocol(PanelProtocol):
                 0x00,
                 0x00,
                 LIGHT_OP_SINGLE,
-                0x01 if state else 0x00,
+                (0x01 if state else 0x00) if code is None else code & 0xFF,
             ]
         )
         return body + bytes([calculate_crc8(body), FRAME_TAIL])
@@ -164,6 +165,10 @@ class SymiProtocol(PanelProtocol):
                     state=op_info[0] != 0,
                     device_addr=device_addr,
                     channel=channel,
+                    code=op_info[0],
+                    # A set frame is the press of a button, the other frames
+                    # report the state of the panel.
+                    is_state=data_type != DATA_TYPE_SET,
                 )
             ]
 

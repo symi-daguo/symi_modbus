@@ -7,6 +7,7 @@ from typing import Any
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -22,6 +23,7 @@ from .const import (
     SUBENTRY_SLAVE,
 )
 from .modbus import ModbusHub
+from .panels.base import ButtonEvent
 from .panels.manager import PanelManager
 
 _LOGGER = logging.getLogger(__name__)
@@ -218,6 +220,10 @@ class PanelButtonSwitch(SwitchEntity):
             "button": f"{button:02d}",
         }
         self._is_on = False
+        # The codes the panel uses for the state it reports, learned from the
+        # frames of the panel and kept, so the light is driven with the codes
+        # the panel understands.
+        self._codes: dict[str, int] = {}
         self._attr_available = panels.is_connected(subentry_id)
 
     @property
@@ -249,15 +255,94 @@ class PanelButtonSwitch(SwitchEntity):
             self._async_button_event,
             self._async_bus_state,
         )
+        self._async_load_codes()
         self._attr_available = self._panels.is_connected(self._subentry_id)
+
+    def _async_load_codes(self) -> None:
+        """Read the codes that were learned before."""
+        registry = er.async_get(self.hass)
+        registry_entry = registry.async_get(self.entity_id)
+        if registry_entry is None:
+            return
+        options = registry_entry.options or {}
+        if "on_code" in options:
+            self._codes["on"] = int(options["on_code"])
+        if "off_code" in options:
+            self._codes["off"] = int(options["off_code"])
+
+    def _async_save_codes(self) -> None:
+        """Keep the learned codes, they survive a restart."""
+        registry = er.async_get(self.hass)
+        registry_entry = registry.async_get(self.entity_id)
+        if registry_entry is None:
+            return
+        options = dict(registry_entry.options or {})
+        options["on_code"] = self._codes.get("on", 0)
+        options["off_code"] = self._codes.get("off", 0)
+        registry.async_update_entity(self.entity_id, options=options)
+
+    def _state_of(self, code: int) -> bool | None:
+        """Return the state a code stands for, None when it is unknown."""
+        if self._codes.get("on") == code:
+            return True
+        if self._codes.get("off") == code:
+            return False
+        return None
+
+    def _async_learn(self, code: int, state: bool) -> None:
+        """Remember the code the panel uses for this state."""
+        if not code:
+            return
+        key = "on" if state else "off"
+        if self._codes.get(key) == code:
+            return
+        self._codes[key] = code
+        _LOGGER.info(
+            "Panel %s button %s uses the code %s for %s",
+            self._panel_id,
+            self._button,
+            code,
+            key,
+        )
+        self._async_save_codes()
+
+    def _code_for(self, state: bool) -> int:
+        """Return the code the panel uses for this state."""
+        manual = self._panels.manual_codes(self._subentry_id)
+        code = manual[0] if state else manual[1]
+        if code is not None:
+            return code
+        learned = self._codes.get("on" if state else "off")
+        if learned is not None:
+            return learned
+        return 1 if state else 0
 
     async def async_will_remove_from_hass(self) -> None:
         """Stop listening for the button of this panel."""
         self._panels.remove_button(self._subentry_id, self._panel_id, self._button)
 
     @callback
-    def _async_button_event(self, state: bool) -> None:
-        """Handle a button press reported by the panel."""
+    def _async_button_event(self, event: ButtonEvent) -> None:
+        """Handle what the panel reported for this button.
+
+        A set frame is the press of a button, so the state flips and the code
+        of the frame belongs to the new state. The other frames report the
+        state of the panel, they are only used when their code is known.
+        """
+        if event.is_state:
+            state = self._state_of(event.code)
+            if state is None:
+                _LOGGER.debug(
+                    "Panel %s reports the unknown code %s for button %s",
+                    event.panel_id,
+                    event.code,
+                    event.button,
+                )
+                return
+        else:
+            state = not self._is_on
+            self._async_learn(event.code, state)
+
         if state == self._is_on:
             return
         self._is_on = state
@@ -274,7 +359,11 @@ class PanelButtonSwitch(SwitchEntity):
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the indicator light on."""
         await self._panels.async_set_button(
-            self._subentry_id, self._panel_id, self._button, True
+            self._subentry_id,
+            self._panel_id,
+            self._button,
+            True,
+            self._code_for(True),
         )
         self._is_on = True
         self.async_write_ha_state()
@@ -282,7 +371,11 @@ class PanelButtonSwitch(SwitchEntity):
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the indicator light off."""
         await self._panels.async_set_button(
-            self._subentry_id, self._panel_id, self._button, False
+            self._subentry_id,
+            self._panel_id,
+            self._button,
+            False,
+            self._code_for(False),
         )
         self._is_on = False
         self.async_write_ha_state()

@@ -258,10 +258,11 @@ class PanelConnection:
         state: bool,
         device_addr: int = 1,
         channel: int | None = None,
+        code: int | None = None,
     ) -> None:
         """Queue the frame that drives the indicator light of a button."""
         frame = self._protocol.build_led_frame(
-            panel_id, button, state, device_addr, channel
+            panel_id, button, state, device_addr, channel, code
         )
         await self._async_enqueue(frame, (panel_id, button, state))
 

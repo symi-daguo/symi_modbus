@@ -40,6 +40,8 @@ from .const import (
     CONF_FRAME,
     CONF_HOST,
     CONF_LED_FRAME_TYPE,
+    CONF_LED_OFF_CODE,
+    CONF_LED_ON_CODE,
     CONF_NAME,
     CONF_PANEL_ENTITIES,
     CONF_PANEL_IDS,
@@ -171,6 +173,12 @@ PANEL_FIELDS = {
             ],
             mode=SelectSelectorMode.DROPDOWN,
         )
+    ),
+    vol.Optional(CONF_LED_ON_CODE): NumberSelector(
+        NumberSelectorConfig(min=0, max=255, step=1, mode=NumberSelectorMode.BOX)
+    ),
+    vol.Optional(CONF_LED_OFF_CODE): NumberSelector(
+        NumberSelectorConfig(min=0, max=255, step=1, mode=NumberSelectorMode.BOX)
     ),
     vol.Required("panel_start", default=1): NumberSelector(
         NumberSelectorConfig(min=1, max=247, mode=NumberSelectorMode.BOX)

@@ -24,6 +24,16 @@ class ButtonEvent:
     channel: int = 0
     """Channel the panel used for this button, 0 when it is the button number."""
 
+    code: int = 0
+    """The code the panel sent in the frame.
+
+    A panel can use a code of its own for the state it reports, so the code is
+    kept as it is and matched against the state later.
+    """
+
+    is_state: bool = False
+    """True when the frame reports the state, false when it is a key press."""
+
 
 class PanelProtocol(ABC):
     """Interface of a panel brand protocol.
@@ -47,11 +57,14 @@ class PanelProtocol(ABC):
         state: bool,
         device_addr: int = 1,
         channel: int | None = None,
+        code: int | None = None,
     ) -> bytes:
         """Build the frame that turns the indicator light of a button on or off.
 
         The address of the button has to be the one the panel used in its
-        button event, the panel ignores a frame with another address.
+        button event, the panel ignores a frame with another address. The code
+        is the one the panel uses for the state, a panel can use a code of its
+        own.
         """
 
     @abstractmethod

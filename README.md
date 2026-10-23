@@ -15,7 +15,7 @@ that belongs to it is a **subentry** that can be added, changed and removed on i
 
 | Item | Value |
 |------|--------|
-| Version | **2.3.0** |
+| Version | **2.3.1** |
 | Home Assistant | **2025.3.0** or newer (developed against 2026.10.2, verified on 2026.7.4) |
 | Python dependency | `pyserial`, `pyserial-asyncio-fast` (declared in `manifest.json`) |
 
@@ -137,6 +137,28 @@ The frames of the LF panels are written as a whole, so the integration keeps tra
 of every button of a panel. The LF panels also need to be put into the mode where the host owns
 the indicator lights, which the integration does when the bus starts.
 
+### The codes of a panel
+
+A panel has two dialects on the bus: the frame it sends when a button is pressed, and the frame
+that carries the state it reports. The second one can use a code of its own for the state, the
+protocol document only shows `0x01` for on and `0x00` for off.
+
+The integration therefore keeps the code of every frame the panel sends and matches it against the
+state of the button. A press of a button flips the state, so the code of that frame belongs to the
+new state. The codes are learned per button and are stored with the entity, so the indicator
+light is driven with the codes the panel understands, and they survive a restart.
+
+The log shows what was learned:
+
+```
+Panel 1 button 1 uses the code 17 for on
+Panel 1 button 1 uses the code 16 for off
+```
+
+Two presses of a button, once for on and once for off, teach the panel both of its codes. When a
+panel sends the same code for both states, or sends no state at all, the codes can be filled in
+by hand in the settings of the panel bus.
+
 ### Button links
 
 A **button link** binds panel buttons to relays. The state is shared in both directions:
@@ -234,6 +256,16 @@ docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
   panel side with a burst of four hundred button presses.
 
 ## Changelog
+
+### 2.3.1
+
+- The **codes a panel uses for the state it reports** are learned now. A panel can use a code of
+  its own for the state, so the codes of the frames the panel sends are kept per button and the
+  indicator light is driven with the code the panel understands. The learned codes are stored with
+  the entity, so they survive a restart.
+- A **panel bus** takes the codes for the light as well, for the panels whose codes cannot be
+  learned.
+- The log tells which code a button uses for which state.
 
 ### 2.3.0
 

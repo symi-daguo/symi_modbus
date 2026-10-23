@@ -25,6 +25,8 @@ from .const import (
     CONF_BYTESIZE,
     CONF_COIL_COUNT,
     CONF_LED_FRAME_TYPE,
+    CONF_LED_OFF_CODE,
+    CONF_LED_ON_CODE,
     CONF_PANEL_ENTITIES,
     CONF_PANEL_IDS,
     CONF_PARITY,
@@ -186,6 +188,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: SymiModbusConfigEntry) -
             panel_ids=[int(panel) for panel in subentry.data.get(CONF_PANEL_IDS, [])],
             led_frame_type=str(
                 subentry.data.get(CONF_LED_FRAME_TYPE, LED_FRAME_REPORT)
+            ),
+            led_codes=(
+                subentry.data.get(CONF_LED_ON_CODE),
+                subentry.data.get(CONF_LED_OFF_CODE),
             ),
             baudrate=int(subentry.data.get(CONF_BAUDRATE, 9600)),
             bytesize=int(subentry.data.get(CONF_BYTESIZE, 8)),

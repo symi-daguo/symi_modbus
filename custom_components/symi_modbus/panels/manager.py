@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from typing import Any
 
 from homeassistant.core import HomeAssistant
 
@@ -16,7 +17,7 @@ _LOGGER = logging.getLogger(__name__)
 # Callbacks receive the id of the subentry the event belongs to and the event.
 EventCallback = Callable[[str, ButtonEvent], None]
 # Callbacks receive the new state of a button.
-ButtonCallback = Callable[[bool], None]
+ButtonCallback = Callable[[Any], None]
 
 
 class PanelManager:
@@ -38,6 +39,8 @@ class PanelManager:
         # panel. Every button of a panel can use its own address.
         self._addresses: dict[tuple[str, int, int], tuple[int, int]] = {}
         self._buttons: dict[tuple[str, int, int], tuple[ButtonCallback, ButtonCallback]] = {}
+        # The codes of the indicator light that were set by hand.
+        self._manual_codes: dict[str, tuple[int | None, int | None]] = {}
         self._event_listeners: list[EventCallback] = []
 
     @property
@@ -72,6 +75,7 @@ class PanelManager:
         brand: str,
         panel_ids: list[int],
         led_frame_type: str = LED_FRAME_REPORT,
+        led_codes: tuple[int | None, int | None] = (None, None),
         baudrate: int = 9600,
         bytesize: int = 8,
         parity: str = "N",
@@ -94,6 +98,7 @@ class PanelManager:
         self._buses[subentry_id] = connection
         self._protocols[subentry_id] = protocol
         self._panel_ids[subentry_id] = list(panel_ids)
+        self._manual_codes[subentry_id] = led_codes
 
         await connection.async_start()
 
@@ -114,6 +119,7 @@ class PanelManager:
         connection = self._buses.pop(subentry_id, None)
         self._protocols.pop(subentry_id, None)
         self._panel_ids.pop(subentry_id, None)
+        self._manual_codes.pop(subentry_id, None)
         for key in [key for key in self._addresses if key[0] == subentry_id]:
             self._addresses.pop(key, None)
         for key in [key for key in self._buttons if key[0] == subentry_id]:
@@ -147,7 +153,12 @@ class PanelManager:
         return connection is not None and connection.is_connected
 
     async def async_set_button(
-        self, subentry_id: str, panel_id: int, button: int, state: bool
+        self,
+        subentry_id: str,
+        panel_id: int,
+        button: int,
+        state: bool,
+        code: int | None = None,
     ) -> None:
         """Write the indicator light of a button."""
         connection = self._buses.get(subentry_id)
@@ -163,8 +174,16 @@ class PanelManager:
             (subentry_id, panel_id, button), (1, button)
         )
         await connection.async_write_led(
-            panel_id, button, state, device_addr, channel
+            panel_id, button, state, device_addr, channel, code
         )
+
+    def manual_codes(self, subentry_id: str) -> tuple[int | None, int | None]:
+        """Return the codes of a panel bus that were set by hand.
+
+        The first one is the code for the light on, the second one the code
+        for the light off.
+        """
+        return self._manual_codes.get(subentry_id, (None, None))
 
     def _make_handler(self, subentry_id: str) -> Callable[[ButtonEvent], None]:
         """Return the handler that forwards the events of one bus."""
@@ -200,7 +219,7 @@ class PanelManager:
         callback = self._buttons.get((subentry_id, event.panel_id, event.button))
         if callback is not None:
             try:
-                callback[0](event.state)
+                callback[0](event)
             except Exception:  # noqa: BLE001
                 _LOGGER.exception("Panel button callback failed")
 

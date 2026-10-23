@@ -55,6 +55,7 @@ class LfProtocol(PanelProtocol):
         state: bool,
         device_addr: int = 1,
         channel: int | None = None,
+        code: int | None = None,
     ) -> bytes:
         """Build the frame that drives the indicator light of a button.
 
