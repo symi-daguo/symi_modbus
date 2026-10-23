@@ -15,7 +15,7 @@ that belongs to it is a **subentry** that can be added, changed and removed on i
 
 | Item | Value |
 |------|--------|
-| Version | **2.4.2** |
+| Version | **2.5.0** |
 | Home Assistant | **2025.3.0** or newer (developed against 2026.10.2, verified on 2026.7.4) |
 | Python dependency | `pyserial`, `pyserial-asyncio-fast` (declared in `manifest.json`) |
 
@@ -43,6 +43,8 @@ slaves, the panels and the links be managed separately inside one entry.
   slave that stops answering is skipped for a few rounds instead of holding up the bus.
 - **Serial port picker**: detected ports are listed, a manual device path can be entered for
   anything that is not listed.
+- **The configuration can be written out and read back**: it travels with a backup of Home
+  Assistant, and it can be exported as text to bring it to another Home Assistant.
 - Polling interval configurable in the integration **Options**, fractional values are allowed.
 - **Quiet logging**: a failing link logs one error per outage instead of one per poll, and the
   recovery is reported once.
@@ -156,8 +158,9 @@ Panel 1 button 1 uses the code 16 for off
 
 Two presses of a button, once for on and once for off, teach the panel both of its codes. When a
 panel sends the same code for both states, or sends no state at all, the codes can be filled in
-by hand in the settings of the panel bus, in the fields **indicator light on code** and
-**indicator light off code**.
+by hand in the settings of the panel bus. They sit in the **advanced settings** of the panel bus,
+together with the frame the light is driven with, because they are only needed when the light of
+a panel does not behave.
 
 Both fields are optional and can stay empty:
 
@@ -168,6 +171,12 @@ Both fields are optional and can stay empty:
 
 A code that is filled in by hand wins over the learned one, and it applies to every button of the
 bus it belongs to.
+
+**These codes have nothing to do with the mode of a link.** The mode of a link says whether the
+relay keeps its state or only triggers once, and it belongs to the link between the button and the
+relay. The codes of the indicator light belong to the panel bus and say which code the panel uses
+for a light that is on and for a light that is off. A panel decides that for itself, the protocol
+document only shows `0x01` and `0x00`, so the codes are learned.
 
 ### Button links
 
@@ -227,6 +236,34 @@ the panel buttons that are linked to it.
 link opens its form, the three dots next to it remove it. A change only touches the part it was
 made on, the other slaves, panel buses and links keep their settings. A name that was changed by
 hand is kept.
+
+## Backup, export and import
+
+The configuration of this integration is part of the **backup of Home Assistant**. Everything the
+integration needs lives in the configuration directory: the connection and its slaves, the panel
+buses and the links are subentries of the config entry, and the codes that were learned are kept
+with the entities. A backup of Home Assistant carries all of it, so a restore brings the
+integration back the way it was.
+
+**Settings → System → Backups** writes such a backup, and **Settings → System → Restore backups**
+puts it back on another machine or after a reinstall.
+
+When only this integration should be moved, the configuration can also be written as text and
+read back. Both are in the **Configure** button of the master, the gear icon at the top of its
+page:
+
+| Step | What it does |
+|------|--------------|
+| **Export the configuration** | Writes the connection, the slaves, the panel buses and the links as YAML into a field. Copy it out of there. |
+| **Import a configuration** | Takes the YAML back. The slaves, the panel buses and the links of the master are brought in line with it, the parts that are not in the text are removed. |
+
+The links are written as the devices they belong to and not as entity ids, so the text stays
+readable and a link keeps working when the serial port of the master is named differently on the
+other machine. The export compares the names of the entities with the names the import works out,
+and the log says it when something does not fit.
+
+The text can be edited before it is imported, for example to change a port or the address of a
+slave. A configuration that cannot be read is refused, and then nothing is changed.
 
 ## How a slave is read
 
@@ -344,6 +381,24 @@ docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
   out the caches of Python and the files of the operating system.
 
 ## Changelog
+
+### 2.5.0
+
+- The **configuration can be exported and imported** as text. It carries the connection, the
+  slaves, the panel buses and the links, and it can be edited before it is imported. A link is
+  written as the devices it belongs to, so it keeps working when the serial port of the master is
+  named differently on the other machine.
+- The configuration is part of the **backup of Home Assistant**, so a restore brings the
+  integration back the way it was.
+- The settings of the **indicator light** of a panel bus are folded into an **advanced settings**
+  section. They are only needed when the light of a panel does not behave, so they do not stand
+  in the way of the normal settings.
+- The **options** of a master now have a menu: the polling interval, the export and the import.
+- The **codes a panel uses** are kept with the entity again. They were written with a call that
+  Home Assistant does not have, so they were lost on every restart and the light of a panel was
+  driven with the default codes.
+- A panel bus is only reported as **ready when its port is really open**, and a bus that cannot
+  be opened says why.
 
 ### 2.4.2
 

@@ -41,6 +41,8 @@ class PanelManager:
         self._buttons: dict[tuple[str, int, int], tuple[ButtonCallback, ButtonCallback]] = {}
         # The codes of the indicator light that were set by hand.
         self._manual_codes: dict[str, tuple[int | None, int | None]] = {}
+        # What to tell in the log when a bus is up.
+        self._bus_info: dict[str, tuple[str, str, str]] = {}
         self._event_listeners: list[EventCallback] = []
 
     @property
@@ -99,6 +101,11 @@ class PanelManager:
         self._protocols[subentry_id] = protocol
         self._panel_ids[subentry_id] = list(panel_ids)
         self._manual_codes[subentry_id] = led_codes
+        self._bus_info[subentry_id] = (
+            port,
+            brand,
+            ", ".join(f"{panel_id:02X}" for panel_id in panel_ids),
+        )
 
         await connection.async_start()
 
@@ -107,19 +114,13 @@ class PanelManager:
         for frame in protocol.prepare_frames(list(panel_ids)):
             await connection.async_write_raw(frame)
 
-        _LOGGER.info(
-            "Panel bus on %s ready, brand %s, panel(s) %s",
-            port,
-            brand,
-            ", ".join(f"{panel_id:02X}" for panel_id in panel_ids),
-        )
-
     async def async_remove_bus(self, subentry_id: str) -> None:
         """Close a panel bus."""
         connection = self._buses.pop(subentry_id, None)
         self._protocols.pop(subentry_id, None)
         self._panel_ids.pop(subentry_id, None)
         self._manual_codes.pop(subentry_id, None)
+        self._bus_info.pop(subentry_id, None)
         for key in [key for key in self._addresses if key[0] == subentry_id]:
             self._addresses.pop(key, None)
         for key in [key for key in self._buttons if key[0] == subentry_id]:
@@ -231,6 +232,9 @@ class PanelManager:
 
     def _handle_state(self, subentry_id: str, connected: bool) -> None:
         """Tell the entities of a bus whether it is up."""
+        if connected and (info := self._bus_info.get(subentry_id)) is not None:
+            # The bus is only ready when its port is really open.
+            _LOGGER.info("Panel bus on %s ready, brand %s, panel(s) %s", *info)
         for (button_subentry, _panel_id, _button), callbacks in self._buttons.items():
             if button_subentry != subentry_id:
                 continue

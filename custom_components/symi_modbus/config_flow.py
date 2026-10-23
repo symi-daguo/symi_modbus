@@ -14,6 +14,7 @@ from homeassistant.config_entries import (
     SubentryFlowResult,
 )
 from homeassistant.core import callback
+from homeassistant.data_entry_flow import section
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.selector import (
@@ -25,9 +26,17 @@ from homeassistant.helpers.selector import (
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
+    TextSelector,
+    TextSelectorConfig,
 )
 from serial.tools.list_ports_common import ListPortInfo
 
+from .config_io import (
+    ConfigImportError,
+    export_configuration,
+    import_configuration,
+    parse_configuration,
+)
 from .const import (
     BRAND_CLOWIRE,
     BRAND_LF,
@@ -69,6 +78,7 @@ from .const import (
     MAX_PANEL_BUTTONS,
     MODE_SCENE,
     MODE_SWITCH,
+    SECTION_ADVANCED,
     SERIAL_PORT_MANUAL_VALUE,
     SUBENTRY_LINKAGE,
     SUBENTRY_PANEL,
@@ -168,21 +178,6 @@ PANEL_FIELDS = {
     vol.Optional(CONF_STOPBITS, default=1): NumberSelector(
         NumberSelectorConfig(min=1, max=2, step=1, mode=NumberSelectorMode.BOX)
     ),
-    vol.Optional(CONF_LED_FRAME_TYPE, default=LED_FRAME_REPORT): SelectSelector(
-        SelectSelectorConfig(
-            options=[
-                {"value": LED_FRAME_REPORT, "label": "Report (0x04)"},
-                {"value": LED_FRAME_SET, "label": "Set (0x03)"},
-            ],
-            mode=SelectSelectorMode.DROPDOWN,
-        )
-    ),
-    vol.Optional(CONF_LED_ON_CODE): NumberSelector(
-        NumberSelectorConfig(min=0, max=255, step=1, mode=NumberSelectorMode.BOX)
-    ),
-    vol.Optional(CONF_LED_OFF_CODE): NumberSelector(
-        NumberSelectorConfig(min=0, max=255, step=1, mode=NumberSelectorMode.BOX)
-    ),
     vol.Required("panel_start", default=1): NumberSelector(
         NumberSelectorConfig(min=1, max=247, mode=NumberSelectorMode.BOX)
     ),
@@ -191,6 +186,34 @@ PANEL_FIELDS = {
     ),
     vol.Optional(CONF_BUTTONS, default=MAX_PANEL_BUTTONS): NumberSelector(
         NumberSelectorConfig(min=1, max=MAX_PANEL_BUTTONS, mode=NumberSelectorMode.BOX)
+    ),
+    # The settings of the indicator light are only needed when the light of a
+    # panel does not behave, so they are folded away.
+    vol.Optional(SECTION_ADVANCED): section(
+        vol.Schema(
+            {
+                vol.Optional(CONF_LED_FRAME_TYPE, default=LED_FRAME_REPORT): SelectSelector(
+                    SelectSelectorConfig(
+                        options=[
+                            {"value": LED_FRAME_REPORT, "label": "Report (0x04)"},
+                            {"value": LED_FRAME_SET, "label": "Set (0x03)"},
+                        ],
+                        mode=SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+                vol.Optional(CONF_LED_ON_CODE): NumberSelector(
+                    NumberSelectorConfig(
+                        min=0, max=255, step=1, mode=NumberSelectorMode.BOX
+                    )
+                ),
+                vol.Optional(CONF_LED_OFF_CODE): NumberSelector(
+                    NumberSelectorConfig(
+                        min=0, max=255, step=1, mode=NumberSelectorMode.BOX
+                    )
+                ),
+            }
+        ),
+        {"collapsed": True},
     ),
 }
 
@@ -835,6 +858,13 @@ class PanelSubentryFlow(ConfigSubentryFlow):
         suggested["panel_start"] = min(panel_ids)
         suggested["panel_count"] = len(panel_ids)
         suggested.pop(CONF_PANEL_IDS, None)
+        advanced = {
+            key: suggested.pop(key)
+            for key in (CONF_LED_FRAME_TYPE, CONF_LED_ON_CODE, CONF_LED_OFF_CODE)
+            if key in suggested
+        }
+        if advanced:
+            suggested[SECTION_ADVANCED] = advanced
         return suggested
 
     async def _async_schema(self, suggested: dict) -> vol.Schema:
@@ -890,7 +920,9 @@ class PanelSubentryFlow(ConfigSubentryFlow):
         data = dict(user_input)
         start = int(data.pop("panel_start", 1))
         count = int(data.pop("panel_count", 1))
+        advanced = data.pop(SECTION_ADVANCED, None) or {}
         data[CONF_PANEL_IDS] = list(range(start, start + count))
+        data.update({key: value for key, value in advanced.items() if value is not None})
         return data
 
     @staticmethod
@@ -1004,8 +1036,19 @@ class LinkageSubentryFlow(ConfigSubentryFlow):
 class SymiModbusOptionsFlow(config_entries.OptionsFlow):
     """Handle options for an existing master."""
 
+    def __init__(self) -> None:
+        """Initialize the flow."""
+        self._import_text: str | None = None
+
     async def async_step_init(self, user_input: dict | None = None) -> config_entries.ConfigFlowResult:
-        """Manage the options."""
+        """Show the menu of the options."""
+        return self.async_show_menu(
+            step_id="init",
+            menu_options=["scan_interval", "export", "import"],
+        )
+
+    async def async_step_scan_interval(self, user_input: dict | None = None) -> config_entries.ConfigFlowResult:
+        """Set the interval the slaves are read with."""
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
@@ -1023,6 +1066,73 @@ class SymiModbusOptionsFlow(config_entries.OptionsFlow):
         }
 
         return self.async_show_form(
-            step_id="init",
+            step_id="scan_interval",
             data_schema=vol.Schema(options),
+        )
+
+    async def async_step_export(self, user_input: dict | None = None) -> config_entries.ConfigFlowResult:
+        """Show the configuration of the master, so it can be copied."""
+        if user_input is not None:
+            return self.async_abort(reason="done")
+
+        text = export_configuration(self.hass, self.config_entry)
+        return self.async_show_form(
+            step_id="export",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("config", default=text): TextSelector(
+                        TextSelectorConfig(multiline=True, read_only=True)
+                    ),
+                }
+            ),
+        )
+
+    async def async_step_import(self, user_input: dict | None = None) -> config_entries.ConfigFlowResult:
+        """Read a configuration and bring the master in line with it."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            try:
+                parse_configuration(user_input["config"])
+            except ConfigImportError as err:
+                _LOGGER.warning(
+                    "The configuration that was handed in cannot be used: %s", err
+                )
+                errors["base"] = "import_failed"
+            else:
+                self._import_text = user_input["config"]
+                return await self.async_step_import_confirm()
+
+        return self.async_show_form(
+            step_id="import",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("config", default=""): TextSelector(
+                        TextSelectorConfig(multiline=True)
+                    ),
+                }
+            ),
+            errors=errors,
+        )
+
+    async def async_step_import_confirm(self, user_input: dict | None = None) -> config_entries.ConfigFlowResult:
+        """Ask before the configuration is applied."""
+        if user_input is not None:
+            result = await import_configuration(
+                self.hass, self.config_entry, self._import_text or ""
+            )
+            for problem in result.problems:
+                _LOGGER.warning("The import had a problem: %s", problem)
+            _LOGGER.info("The configuration was imported, %s", result.summary)
+            return self.async_abort(reason="import_done")
+
+        config = parse_configuration(self._import_text or "")
+        return self.async_show_form(
+            step_id="import_confirm",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "slaves": len(config.get("slaves", [])),
+                "panel_buses": len(config.get("panel_buses", [])),
+                "links": len(config.get("links", [])),
+            },
         )

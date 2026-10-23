@@ -27,6 +27,10 @@ READ_CHUNK = 256
 SERIAL_POST_WRITE_DELAY = 0.05
 RECONNECT_DELAY = 5
 
+# A bus that does not work is opened again and again, so the message about it
+# is written once a minute at most.
+ERROR_LOG_INTERVAL = 60
+
 # A bus echoes the frames we send. Those echoes carry the same address and
 # state as the frame we sent, so they are recognised and dropped instead of
 # being reported as a button press.
@@ -111,6 +115,7 @@ class PanelConnection:
         self._echoes: list[tuple[int, int, bool, float]] = []
         self._seen_data = False
         self._tasks: list[asyncio.Task] = []
+        self._last_error_at = 0.0
 
     @property
     def is_connected(self) -> bool:
@@ -151,16 +156,20 @@ class PanelConnection:
         """Open the serial port."""
         from ..connection import serial_bytesize, serial_parity, serial_stopbits
 
-        self._reader, self._writer = await asyncio.wait_for(
-            serial_asyncio.open_serial_connection(
-                url=str(self._port),
-                baudrate=self._baudrate,
-                bytesize=serial_bytesize(self._bytesize),
-                parity=serial_parity(self._parity),
-                stopbits=serial_stopbits(self._stopbits),
-            ),
-            CONNECT_TIMEOUT,
-        )
+        try:
+            self._reader, self._writer = await asyncio.wait_for(
+                serial_asyncio.open_serial_connection(
+                    url=str(self._port),
+                    baudrate=self._baudrate,
+                    bytesize=serial_bytesize(self._bytesize),
+                    parity=serial_parity(self._parity),
+                    stopbits=serial_stopbits(self._stopbits),
+                ),
+                CONNECT_TIMEOUT,
+            )
+        except Exception as err:  # noqa: BLE001
+            self._log_error("cannot be opened", err)
+            raise
         _LOGGER.debug("Panel bus %s opened", self._port)
         # Reading the open files of the other programs is a blocking call, so
         # it belongs in the executor.
@@ -180,6 +189,18 @@ class PanelConnection:
             return
         if self._on_state is not None:
             self._on_state(True)
+
+    def _log_error(self, message: str, err: Exception) -> None:
+        """Tell in the log that the bus does not work.
+
+        The bus is opened again and again, so the message is written once a
+        minute at most.
+        """
+        now = monotonic()
+        if now - self._last_error_at < ERROR_LOG_INTERVAL:
+            return
+        self._last_error_at = now
+        _LOGGER.warning("The panel bus %s %s: %s", self._port, message, err)
 
     def own_handle(self) -> set[tuple[str, str]]:
         """Return the handle of this connection, so it can be left out."""
@@ -204,7 +225,10 @@ class PanelConnection:
             except asyncio.CancelledError:
                 raise
             except Exception as err:  # noqa: BLE001
-                _LOGGER.debug("Panel bus %s read failed: %s", self._port, err)
+                if self.is_connected:
+                    # The port was open and stopped working, the reason is
+                    # worth knowing.
+                    self._log_error("stopped reading", err)
                 await self._async_close()
                 await asyncio.sleep(RECONNECT_DELAY)
                 continue

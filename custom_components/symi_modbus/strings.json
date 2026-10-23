@@ -115,14 +115,23 @@
             "stopbits": "Stopbits",
             "panel_start": "First panel address",
             "panel_count": "Number of panels",
-            "buttons": "Buttons per panel",
-            "led_frame_type": "Indicator light frame",
-            "led_on_code": "Code for the light on",
-            "led_off_code": "Code for the light off"
+            "buttons": "Buttons per panel"
           },
-          "data_description": {
-            "led_on_code": "Optional. The code that is written into the frame to turn an indicator light on. It applies to every button on this bus. Leave it empty to let the integration learn the code from the frames the panel reports, when no code is learned it uses 1 (0x01).",
-            "led_off_code": "Optional. The code that is written into the frame to turn an indicator light off. It applies to every button on this bus. Leave it empty to let the integration learn the code from the frames the panel reports, when no code is learned it uses 0 (0x00)."
+          "sections": {
+            "advanced": {
+              "name": "Advanced settings",
+              "description": "These settings are only needed when the indicator light of a panel does not behave as it should.",
+              "data": {
+                "led_frame_type": "Indicator light frame",
+                "led_on_code": "Code for the light on",
+                "led_off_code": "Code for the light off"
+              },
+              "data_description": {
+                "led_frame_type": "The frame the light of a panel is driven with. The protocol document asks for the report frame 0x04, change it to the set frame 0x03 when the light of the panel stays dark.",
+                "led_on_code": "Optional. The code that is written into the frame to turn an indicator light on. It applies to every button of this bus. Leave it empty to let the integration learn the code from the frames the panel sends, when no code is learned it uses 1 (0x01).",
+                "led_off_code": "Optional. The code that is written into the frame to turn an indicator light off. It applies to every button of this bus. Leave it empty to let the integration learn the code from the frames the panel sends, when no code is learned it uses 0 (0x00)."
+              }
+            }
           }
         },
         "reconfigure": {
@@ -136,16 +145,25 @@
             "stopbits": "Stopbits",
             "panel_start": "First panel address",
             "panel_count": "Number of panels",
-            "buttons": "Buttons per panel",
-            "led_frame_type": "Indicator light frame",
-            "led_on_code": "Code for the light on",
-            "led_off_code": "Code for the light off"
+            "buttons": "Buttons per panel"
           },
-          "data_description": {
-            "led_on_code": "Optional. The code that is written into the frame to turn an indicator light on. It applies to every button on this bus. Leave it empty to let the integration learn the code from the frames the panel reports, when no code is learned it uses 1 (0x01).",
-            "led_off_code": "Optional. The code that is written into the frame to turn an indicator light off. It applies to every button on this bus. Leave it empty to let the integration learn the code from the frames the panel reports, when no code is learned it uses 0 (0x00)."
-          },
-          "description": "The serial line the panels are connected to, together with their brand. The brand decides which protocol is used to read the buttons and to drive the indicator lights. Pick the port from the list or type a path, a port that this integration already uses is not in the list. The feedback frame is the report frame 0x04 of the protocol document, change it to the set frame 0x03 when the light of the panel stays dark. Note: a panel usually uses codes of its own for the state it reports, the integration learns and keeps them from the frames of the panel. Fill them in here when the codes of the panel cannot be learned."
+          "description": "The serial line the panels are connected to, together with their brand. The brand decides which protocol is used to read the buttons and to drive the indicator lights. Pick the port from the list or type a path, a port that this integration already uses is not in the list. The feedback frame is the report frame 0x04 of the protocol document, change it to the set frame 0x03 when the light of the panel stays dark. Note: a panel usually uses codes of its own for the state it reports, the integration learns and keeps them from the frames of the panel. Fill them in here when the codes of the panel cannot be learned.",
+          "sections": {
+            "advanced": {
+              "name": "Advanced settings",
+              "description": "These settings are only needed when the indicator light of a panel does not behave as it should.",
+              "data": {
+                "led_frame_type": "Indicator light frame",
+                "led_on_code": "Code for the light on",
+                "led_off_code": "Code for the light off"
+              },
+              "data_description": {
+                "led_frame_type": "The frame the light of a panel is driven with. The protocol document asks for the report frame 0x04, change it to the set frame 0x03 when the light of the panel stays dark.",
+                "led_on_code": "Optional. The code that is written into the frame to turn an indicator light on. It applies to every button of this bus. Leave it empty to let the integration learn the code from the frames the panel sends, when no code is learned it uses 1 (0x01).",
+                "led_off_code": "Optional. The code that is written into the frame to turn an indicator light off. It applies to every button of this bus. Leave it empty to let the integration learn the code from the frames the panel sends, when no code is learned it uses 0 (0x00)."
+              }
+            }
+          }
         }
       },
       "error": {
@@ -191,12 +209,46 @@
   "options": {
     "step": {
       "init": {
-        "title": "Symi Modbus Options",
+        "title": "Options",
+        "description": "The polling interval and the configuration of this master.",
+        "menu_options": {
+          "scan_interval": "Polling interval",
+          "export": "Export the configuration",
+          "import": "Import a configuration"
+        }
+      },
+      "scan_interval": {
+        "title": "Polling interval",
+        "description": "The period of one round over all slaves of this master.",
         "data": {
-          "scan_interval": "Scan interval (seconds)"
-        },
-        "description": "The time one round over all slaves takes. Every slave of the connection is asked once per round, so the interval between two slaves is the scan interval divided by the number of slaves."
+          "scan_interval": "Scan interval"
+        }
+      },
+      "export": {
+        "title": "Export the configuration",
+        "description": "The configuration of this master as text. Copy it to keep it, or to bring it to another Home Assistant.",
+        "data": {
+          "config": "Configuration"
+        }
+      },
+      "import": {
+        "title": "Import a configuration",
+        "description": "Paste a configuration that was exported before. The slaves, the panel buses and the links of this master are brought in line with it.",
+        "data": {
+          "config": "Configuration"
+        }
+      },
+      "import_confirm": {
+        "title": "Import the configuration",
+        "description": "The configuration holds {slaves} slave(s), {panel_buses} panel bus(es) and {links} link(s). It replaces the parts of this master that are not in it."
       }
+    },
+    "error": {
+      "import_failed": "The configuration cannot be read, check the text and try again."
+    },
+    "abort": {
+      "done": "Done",
+      "import_done": "The configuration was imported."
     }
   },
   "entity": {

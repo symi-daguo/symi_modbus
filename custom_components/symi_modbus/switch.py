@@ -36,6 +36,29 @@ PARALLEL_UPDATES = 0
 CONF_COIL_START = "start"
 
 
+def _codes_from_options(options: dict[str, Any]) -> dict[str, int]:
+    """Return the codes of a panel that are kept with the entity.
+
+    The codes live in the options of the entity, under the domain of the
+    integration, the way Home Assistant keeps the options of an entity.
+    """
+    own = options.get(DOMAIN) or {}
+    codes: dict[str, int] = {}
+    if "on_code" in own:
+        codes["on"] = int(own["on_code"])
+    if "off_code" in own:
+        codes["off"] = int(own["off_code"])
+    return codes
+
+
+def _options_with_codes(options: dict[str, Any], codes: dict[str, int]) -> dict[str, Any]:
+    """Return the options of the entity with the learned codes."""
+    own = dict(options.get(DOMAIN) or {})
+    own["on_code"] = codes.get("on", 0)
+    own["off_code"] = codes.get("off", 0)
+    return own
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
@@ -326,11 +349,7 @@ class PanelButtonSwitch(SwitchEntity):
         registry_entry = registry.async_get(self.entity_id)
         if registry_entry is None:
             return
-        options = registry_entry.options or {}
-        if "on_code" in options:
-            self._codes["on"] = int(options["on_code"])
-        if "off_code" in options:
-            self._codes["off"] = int(options["off_code"])
+        self._codes.update(_codes_from_options(registry_entry.options or {}))
 
     def _async_save_codes(self) -> None:
         """Keep the learned codes, they survive a restart."""
@@ -338,10 +357,11 @@ class PanelButtonSwitch(SwitchEntity):
         registry_entry = registry.async_get(self.entity_id)
         if registry_entry is None:
             return
-        options = dict(registry_entry.options or {})
-        options["on_code"] = self._codes.get("on", 0)
-        options["off_code"] = self._codes.get("off", 0)
-        registry.async_update_entity(self.entity_id, options=options)
+        registry.async_update_entity_options(
+            self.entity_id,
+            DOMAIN,
+            _options_with_codes(registry_entry.options or {}, self._codes),
+        )
 
     def _state_of(self, code: int) -> bool | None:
         """Return the state a code stands for, None when it is unknown."""

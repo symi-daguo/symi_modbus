@@ -29,6 +29,7 @@ CONF_SERIAL: Final = "serial"
 CONF_BAUDRATE: Final = "baudrate"
 CONF_BYTESIZE: Final = "bytesize"
 CONF_COIL_COUNT: Final = "coil_count"
+CONF_COIL_START: Final = "start"
 CONF_FRAME: Final = "frame"
 CONF_PARITY: Final = "parity"
 CONF_SLAVES: Final = "slaves"
@@ -89,6 +90,10 @@ CONF_LED_ON_CODE: Final = "led_on_code"
 CONF_LED_OFF_CODE: Final = "led_off_code"
 LED_FRAME_REPORT: Final = "report"
 LED_FRAME_SET: Final = "set"
+
+# The section of a form that holds the settings that are only needed when
+# something does not behave.
+SECTION_ADVANCED: Final = "advanced"
 
 # Number of buttons a panel has, the limit of every supported brand.
 MAX_PANEL_BUTTONS: Final = 8
