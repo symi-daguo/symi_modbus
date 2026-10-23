@@ -40,6 +40,10 @@ ECHO_WINDOW = 0.15
 # the queue grow without limit.
 MAX_QUEUE = 500
 
+# How many chunks of the line are kept for the diagnostics. The customer can
+# look at the raw data of the bus there, without the log filling up.
+RECENT_CHUNKS = 40
+
 
 def serial_port_holders(
     port: str, exclude: set[tuple[str, str]] | None = None
@@ -116,6 +120,8 @@ class PanelConnection:
         self._seen_data = False
         self._tasks: list[asyncio.Task] = []
         self._last_error_at = 0.0
+        # The last chunks of the line, for the diagnostics.
+        self._recent: deque[str] = deque(maxlen=RECENT_CHUNKS)
 
     @property
     def is_connected(self) -> bool:
@@ -190,6 +196,18 @@ class PanelConnection:
         if self._on_state is not None:
             self._on_state(True)
 
+    def recent_traffic(self) -> list[str]:
+        """Return the last chunks of the line.
+
+        The chunks are kept for the diagnostics, so the raw data of the bus can
+        be looked at without filling the log.
+        """
+        return list(self._recent)
+
+    def _remember(self, direction: str, data: bytes) -> None:
+        """Keep a chunk of the line for the diagnostics."""
+        self._recent.append(f"{direction} {data.hex(' ').upper()}")
+
     def _log_error(self, message: str, err: Exception) -> None:
         """Tell in the log that the bus does not work.
 
@@ -242,6 +260,7 @@ class PanelConnection:
 
     def _handle_chunk(self, chunk: bytes) -> None:
         """Parse the received bytes and report the button events."""
+        self._remember("<", chunk)
         if not self._seen_data:
             self._seen_data = True
             _LOGGER.info(
@@ -322,6 +341,7 @@ class PanelConnection:
                 assert self._writer is not None
                 self._writer.write(frame)
                 await self._writer.drain()
+                self._remember(">", frame)
                 if echo is not None:
                     self._echoes.append((*echo, monotonic()))
                     _LOGGER.debug(

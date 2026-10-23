@@ -131,6 +131,15 @@ class ModbusHub:
         """Return the id of the config entry behind this hub."""
         return self._entry.entry_id
 
+    def recent_traffic(self) -> list[str]:
+        """Return the last frames that went over the master line."""
+        return self._connection.recent_traffic()
+
+    @property
+    def is_connected(self) -> bool:
+        """Return whether the master line is open."""
+        return self._connection.is_connected
+
     @property
     def connection_type(self) -> str:
         """Return the connection type key (tcp / serial)."""

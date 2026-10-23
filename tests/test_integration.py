@@ -106,15 +106,32 @@ def test_the_document_shows_the_version_of_the_manifest() -> None:
     import re
     from pathlib import Path
 
-    base = Path(__file__).resolve().parent.parent / "custom_components" / "symi_modbus"
-    manifest = json.loads((base / "manifest.json").read_text())
-    readme = (base.parent.parent / "README.md").read_text()
-
-    shown = re.search(r"\| Version \| \*\*([^*]+)\*\* \|", readme)
-    assert shown is not None, "the document does not show a version"
-    assert shown.group(1) == manifest["version"], (
-        f"the document shows {shown.group(1)}, the manifest {manifest['version']}"
+    root = Path(__file__).resolve().parent.parent
+    manifest = json.loads(
+        (root / "custom_components" / "symi_modbus" / "manifest.json").read_text()
     )
+
+    for name in ("README.md", "README.zh-CN.md"):
+        readme = (root / name).read_text()
+        shown = re.search(r"\| (?:Version|版本) \| \*\*([^*]+)\*\* \|", readme)
+        assert shown is not None, f"{name} does not show a version"
+        assert shown.group(1) == manifest["version"], (
+            f"{name} shows {shown.group(1)}, the manifest {manifest['version']}"
+        )
+
+
+def test_the_documents_come_in_both_languages() -> None:
+    """Every document that comes in one language comes in the other as well."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    english = (root / "README.md").read_text()
+    chinese = (root / "README.zh-CN.md").read_text()
+
+    assert "README.zh-CN.md" in english
+    assert "README.md" in chinese
+    # Both documents tell the same story, the tables have the same shape.
+    assert english.count("\n|") == chinese.count("\n|")
 
 
 def test_the_hacs_file_follows_the_rules_of_hacs() -> None:

@@ -169,7 +169,7 @@
       "error": {
         "invalid_panel_path": "Enter a valid serial device path",
         "serial_port_busy": "Another program holds this serial port, the bytes would be split between them. Please pick another port.",
-        "serial_port_in_use": "This serial port is already used by another connection of this integration. Please pick another port.",
+        "serial_port_in_use": "This serial port is used by the Modbus master. A serial port cannot carry the master and the panels at the same time, please pick another port.",
         "serial_port_required": "Please fill in the path of the serial port."
       }
     },

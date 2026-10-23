@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from collections import deque
 from typing import Optional
 
 import serial
@@ -26,6 +27,10 @@ CONNECT_TIMEOUT = 5
 READ_TIMEOUT = 0.5
 SERIAL_POST_WRITE_DELAY = 0.02
 MAX_FRAME_SIZE = 260
+
+# How many frames of the line are kept for the diagnostics. The customer can
+# look at the raw data of the bus there, without the log filling up.
+RECENT_FRAMES = 40
 
 
 def serial_bytesize(value: int) -> int:
@@ -89,11 +94,25 @@ class ModbusConnection:
         self._writer: Optional[asyncio.StreamWriter] = None
         self._lock = asyncio.Lock()
         self._buffer = bytearray()
+        # The last frames that went over the line, for the diagnostics.
+        self._recent: deque[str] = deque(maxlen=RECENT_FRAMES)
 
     @property
     def frame(self) -> str:
         """Return the frame format used by this connection."""
         return self._frame
+
+    def recent_traffic(self) -> list[str]:
+        """Return the last frames that went over the line.
+
+        The frames are kept for the diagnostics, so the raw data of the bus can
+        be looked at without filling the log.
+        """
+        return list(self._recent)
+
+    def _remember(self, direction: str, data: bytes) -> None:
+        """Keep a frame of the line for the diagnostics."""
+        self._recent.append(f"{direction} {data.hex(' ').upper()}")
 
     @property
     def is_connected(self) -> bool:
@@ -176,6 +195,7 @@ class ModbusConnection:
                 assert self._reader is not None
                 self._writer.write(payload)
                 await self._writer.drain()
+                self._remember(">", payload)
                 _LOGGER.debug("Sent %s byte(s): %s", len(payload), payload.hex(' '))
 
                 if self._type == "serial":
@@ -256,6 +276,7 @@ class ModbusConnection:
 
             frame = bytes(self._buffer[:expected])
             del self._buffer[:expected]
+            self._remember("<", frame)
             return frame
 
         return None

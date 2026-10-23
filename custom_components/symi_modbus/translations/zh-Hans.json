@@ -169,7 +169,7 @@
       "error": {
         "invalid_panel_path": "请输入有效的串口设备路径",
         "serial_port_busy": "该串口已被其他程序占用，字节会被两边瓜分，请换一个串口",
-        "serial_port_in_use": "该串口已被本集成的其他连接占用，请换一个串口",
+        "serial_port_in_use": "该串口被 Modbus 主站占用。同一个串口不能同时给主站和面板使用，请换一个串口",
         "serial_port_required": "请填写串口路径"
       }
     },

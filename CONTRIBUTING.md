@@ -2,6 +2,9 @@
 
 感谢您对 Symi Modbus 集成的兴趣！以下是参与这个项目的指南。
 
+> Contributions from outside China are welcome as well. Please write in English in the issues
+> and the pull requests, or in Chinese, both are fine.
+
 ## 提交 Issue
 
 如果您发现了问题或有功能建议，请通过 GitHub Issues 提交，包括以下内容：

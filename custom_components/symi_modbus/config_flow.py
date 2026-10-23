@@ -373,11 +373,12 @@ def _slave_addresses(first: int, count: int) -> list[int]:
     return list(range(first, first + max(int(count), 1)))
 
 
-def _ports_in_use(hass, skip_subentry_id: str | None = None) -> set[str]:
-    """Return the serial ports this integration already uses.
+def _master_ports(hass) -> set[str]:
+    """Return the serial ports the Modbus masters use.
 
-    Two connections cannot share a serial port, the bytes would be split
-    between them.
+    A master cannot share its port with a panel bus. The master asks the
+    slaves and waits for their answer, a panel sends its report on its own,
+    and the two would mix their bytes.
     """
     used: set[str] = set()
     for config_entry in hass.config_entries.async_entries(DOMAIN):
@@ -385,6 +386,18 @@ def _ports_in_use(hass, skip_subentry_id: str | None = None) -> set[str]:
             port = config_entry.data.get(CONF_PORT)
             if port:
                 used.add(str(port))
+    return used
+
+
+def _panel_ports(hass, skip_subentry_id: str | None = None) -> set[str]:
+    """Return the serial ports the panel buses use.
+
+    Panel buses can share a port. A RS485 line carries the panels of one
+    brand and every frame carries the address of the panel it belongs to, so
+    one connection reads the line for all of them.
+    """
+    used: set[str] = set()
+    for config_entry in hass.config_entries.async_entries(DOMAIN):
         for subentry in config_entry.get_subentries_of_type(SUBENTRY_PANEL):
             if subentry.subentry_id == skip_subentry_id:
                 continue
@@ -394,17 +407,31 @@ def _ports_in_use(hass, skip_subentry_id: str | None = None) -> set[str]:
     return used
 
 
+def _own_handles(hass) -> set[tuple[str, str]]:
+    """Return the serial ports this integration holds open itself."""
+    handles: set[tuple[str, str]] = set()
+    for config_entry in hass.config_entries.async_entries(DOMAIN):
+        runtime = getattr(config_entry, "runtime_data", None)
+        if runtime is None:
+            continue
+        handles |= runtime.panels.own_handles()
+    return handles
+
+
 def _serial_port_options(
     ports: list[ListPortInfo],
     used: set[str],
     busy: set[str] | None = None,
+    shared: set[str] | None = None,
 ) -> dict[str, str]:
     """Return the selectable serial ports without the ones already in use.
 
     A port that another program holds is marked, because the bytes on such a
-    port are split between the programs.
+    port are split between the programs. A port that another panel bus uses
+    is marked as well, it can be shared.
     """
     busy = busy or set()
+    shared = shared or set()
     options: dict[str, str] = {}
     for info in sorted(ports, key=lambda port: port.device):
         if info.device in used:
@@ -412,6 +439,8 @@ def _serial_port_options(
         label = _format_serial_port_label(info)
         if info.device in busy:
             label += " - 已被其他程序占用 (held by another program)"
+        elif info.device in shared:
+            label += " - 可与其他面板共用 (can be shared with other panels)"
         options[info.device] = label
     options[SERIAL_PORT_MANUAL_VALUE] = (
         "未列出 - 手动输入路径 (Not listed - enter the path manually)"
@@ -419,12 +448,17 @@ def _serial_port_options(
     return options
 
 
-def _busy_serial_ports(ports: list[ListPortInfo], used: set[str]) -> set[str]:
+def _busy_serial_ports(
+    ports: list[ListPortInfo],
+    used: set[str],
+    exclude: set[tuple[str, str]] | None = None,
+) -> set[str]:
     """Return the ports that another program holds open."""
     return {
         info.device
         for info in ports
-        if info.device not in used and serial_port_holders(info.device) > 0
+        if info.device not in used
+        and serial_port_holders(info.device, exclude) > 0
     }
 
 
@@ -521,9 +555,9 @@ class SymiModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         ports = await self.hass.async_add_executor_job(_list_serial_ports)
         # A serial port that is already used by another connection would
         # split the bytes between them, so it is not offered.
-        used = _ports_in_use(self.hass)
+        used = _master_ports(self.hass) | _panel_ports(self.hass)
         busy = await self.hass.async_add_executor_job(
-            _busy_serial_ports, ports, used
+            _busy_serial_ports, ports, used, _own_handles(self.hass)
         )
         options = _serial_port_options(ports, used, busy)
         default_port: str | None = next(
@@ -841,7 +875,7 @@ class PanelSubentryFlow(ConfigSubentryFlow):
         path = str(port or "").strip()
         if not path:
             return "serial_port_required"
-        if path in _ports_in_use(self.hass, self._own_subentry_id):
+        if path in _master_ports(self.hass):
             return "serial_port_in_use"
 
         # The bus of this integration holds the port itself, that one is fine.
@@ -870,11 +904,13 @@ class PanelSubentryFlow(ConfigSubentryFlow):
     async def _async_schema(self, suggested: dict) -> vol.Schema:
         """Build the form with the serial ports that are detected."""
         ports = await self.hass.async_add_executor_job(_list_serial_ports)
-        used = _ports_in_use(self.hass, self._own_subentry_id)
+        used = _master_ports(self.hass)
         busy = await self.hass.async_add_executor_job(
-            _busy_serial_ports, ports, used
+            _busy_serial_ports, ports, used, _own_handles(self.hass)
         )
-        options = _serial_port_options(ports, used, busy)
+        options = _serial_port_options(
+            ports, used, busy, shared=_panel_ports(self.hass, self._own_subentry_id)
+        )
 
         current = suggested.get(CONF_PORT)
         if current and current not in options:
