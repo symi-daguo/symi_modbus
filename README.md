@@ -13,7 +13,7 @@ wall panel buses and the links between a panel button and a relay.
 
 | | |
 |---|---|
-| Version | **2.6.1** |
+| Version | **2.6.2** |
 | Home Assistant | **2025.3.0** or newer |
 | Dependencies | `pyserial`, `pyserial-asyncio-fast` |
 
@@ -163,6 +163,18 @@ docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
 - `scripts/generate_brand.py` regenerates the brand images from `assets/icon_source.png`.
 
 ## Changelog
+
+### 2.6.2
+
+- The **code of a press tells the state** of the button when it is known. The state was flipped
+  before, so a code could be learned for the wrong state as soon as the light of a button was
+  written by the relay. A panel that reports the state with the code zero is understood now as
+  well, and two codes that cannot be told apart are not used any more.
+- The **echo of a frame is told apart by the code** it carries and not by the state. A panel that
+  uses a code of its own for the state was therefore taken for a press of a button, which wrote the
+  relays when a batch of buttons was switched.
+- Nothing is **written while a panel may still be sending**, so the frames of the integration and
+  the reports of the panels do not damage each other on the line.
 
 ### 2.6.1
 

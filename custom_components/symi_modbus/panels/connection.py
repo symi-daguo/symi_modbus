@@ -44,6 +44,10 @@ MAX_QUEUE = 500
 # look at the raw data of the bus there, without the log filling up.
 RECENT_CHUNKS = 40
 
+# The line is shared with the panels. Nothing is written while a panel may
+# still be sending, otherwise both are damaged.
+LINE_QUIET = 0.05
+
 
 def serial_port_holders(
     port: str, exclude: set[tuple[str, str]] | None = None
@@ -116,7 +120,10 @@ class PanelConnection:
         self._write_lock = asyncio.Lock()
         self._queue: deque[tuple[bytes, tuple[int, int, bool] | None]] = deque()
         self._queue_event = asyncio.Event()
-        self._echoes: list[tuple[int, int, bool, float]] = []
+        # The echoes of the frames we sent: panel, channel, code, time.
+        self._echoes: list[tuple[int, int, int, float]] = []
+        # When the last data arrived, so the line can be left alone.
+        self._last_received_at: float | None = None
         self._seen_data = False
         self._tasks: list[asyncio.Task] = []
         self._last_error_at = 0.0
@@ -260,6 +267,7 @@ class PanelConnection:
 
     def _handle_chunk(self, chunk: bytes) -> None:
         """Parse the received bytes and report the button events."""
+        self._last_received_at = monotonic()
         self._remember("<", chunk)
         if not self._seen_data:
             self._seen_data = True
@@ -280,14 +288,20 @@ class PanelConnection:
             self._on_event(event)
 
     def _is_echo(self, event: ButtonEvent) -> bool:
-        """Return True when the event is the echo of a frame we sent."""
+        """Return True when the event is the echo of a frame we sent.
+
+        The echo carries the channel and the code of the frame that was sent,
+        so those are compared. The state is not used, a panel can use a code of
+        its own for the state and then the state of the echo does not tell
+        which frame it belongs to.
+        """
         now = monotonic()
         self._echoes = [echo for echo in self._echoes if now - echo[3] < ECHO_WINDOW]
-        for index, (panel_id, button, state, sent_at) in enumerate(self._echoes):
+        for index, (panel_id, channel, code, sent_at) in enumerate(self._echoes):
             if (
                 panel_id == event.panel_id
-                and button == event.button
-                and state == event.state
+                and channel == event.button
+                and code == event.code
                 and now - sent_at < ECHO_WINDOW
             ):
                 del self._echoes[index]
@@ -307,14 +321,19 @@ class PanelConnection:
         frame = self._protocol.build_led_frame(
             panel_id, button, state, device_addr, channel, code
         )
-        await self._async_enqueue(frame, (panel_id, button, state))
+        # The echo of the frame carries the channel and the code that were sent,
+        # so the echo is told apart by them. Comparing the state would not work
+        # for a panel that uses a code of its own for the state.
+        used_channel = button if channel is None else channel
+        used_code = (1 if state else 0) if code is None else code
+        await self._async_enqueue(frame, (panel_id, used_channel, used_code))
 
     async def async_write_raw(self, frame: bytes) -> None:
         """Queue a frame that is not a button update."""
         await self._async_enqueue(frame, None)
 
     async def _async_enqueue(
-        self, frame: bytes, echo: tuple[int, int, bool] | None
+        self, frame: bytes, echo: tuple[int, int, int] | None
     ) -> None:
         """Put a frame into the send queue."""
         async with self._write_lock:
@@ -323,6 +342,19 @@ class PanelConnection:
                 self._queue.popleft()
             self._queue.append((frame, echo))
         self._queue_event.set()
+
+    async def _async_wait_for_quiet(self) -> None:
+        """Wait until the line is quiet.
+
+        The panels share the line with us. When a panel sends its report while
+        a frame of ours goes out, both are damaged and the panel does not get
+        the frame, so nothing is written while the line is still busy.
+        """
+        if self._last_received_at is None:
+            return
+        quiet = LINE_QUIET - (monotonic() - self._last_received_at)
+        if quiet > 0:
+            await asyncio.sleep(quiet)
 
     async def _async_write_loop(self) -> None:
         """Write the queued frames one after the other."""
@@ -339,17 +371,19 @@ class PanelConnection:
                     if not self.is_connected:
                         await self._async_open()
                 assert self._writer is not None
+                await self._async_wait_for_quiet()
                 self._writer.write(frame)
                 await self._writer.drain()
                 self._remember(">", frame)
                 if echo is not None:
                     self._echoes.append((*echo, monotonic()))
                     _LOGGER.debug(
-                        "Panel bus %s: the light of panel %s button %s is set to %s",
+                        "Panel bus %s: the light of panel %s channel %s is set "
+                        "with the code %s",
                         self._port,
                         echo[0],
                         echo[1],
-                        "on" if echo[2] else "off",
+                        echo[2],
                     )
                 _LOGGER.debug(
                     "Panel bus %s: sent %s", self._port, frame.hex(" ").upper()
