@@ -15,7 +15,7 @@ that belongs to it is a **subentry** that can be added, changed and removed on i
 
 | Item | Value |
 |------|--------|
-| Version | **2.3.1** |
+| Version | **2.4.1** |
 | Home Assistant | **2025.3.0** or newer (developed against 2026.10.2, verified on 2026.7.4) |
 | Python dependency | `pyserial`, `pyserial-asyncio-fast` (declared in `manifest.json`) |
 

@@ -98,3 +98,20 @@ def test_brand_assets_use_the_official_sizes() -> None:
         assert path.is_file(), f"missing {name}"
         with Image.open(path) as image:
             assert image.height == 512, f"{name} height is {image.height}, expected 512"
+
+
+def test_the_document_shows_the_version_of_the_manifest() -> None:
+    """The version in the document is the version that is released."""
+    import json
+    import re
+    from pathlib import Path
+
+    base = Path(__file__).resolve().parent.parent / "custom_components" / "symi_modbus"
+    manifest = json.loads((base / "manifest.json").read_text())
+    readme = (base.parent.parent / "README.md").read_text()
+
+    shown = re.search(r"\| Version \| \*\*([^*]+)\*\* \|", readme)
+    assert shown is not None, "the document does not show a version"
+    assert shown.group(1) == manifest["version"], (
+        f"the document shows {shown.group(1)}, the manifest {manifest['version']}"
+    )
