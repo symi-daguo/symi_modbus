@@ -15,7 +15,7 @@ that belongs to it is a **subentry** that can be added, changed and removed on i
 
 | Item | Value |
 |------|--------|
-| Version | **2.4.1** |
+| Version | **2.4.2** |
 | Home Assistant | **2025.3.0** or newer (developed against 2026.10.2, verified on 2026.7.4) |
 | Python dependency | `pyserial`, `pyserial-asyncio-fast` (declared in `manifest.json`) |
 
@@ -80,8 +80,13 @@ keeps the order and leaves at least 50 ms between two commands, as the panel man
 **HACS:** Custom repositories → add `https://github.com/symi-daguo/symi_modbus` as Integration →
 install → restart Home Assistant.
 
+HACS installs the files of the release tag, and it shows the version of Home Assistant that is
+needed before it offers the installation. The version in `hacs.json` is the same as the one in
+`manifest.json`, so both always agree.
+
 **Manual:** Copy `custom_components/symi_modbus` into your configuration `custom_components/`
-directory and restart.
+directory and restart. The archive of a release holds the same layout, so it can be unpacked into
+the configuration directory as well.
 
 ## Configuration flow
 
@@ -151,7 +156,18 @@ Panel 1 button 1 uses the code 16 for off
 
 Two presses of a button, once for on and once for off, teach the panel both of its codes. When a
 panel sends the same code for both states, or sends no state at all, the codes can be filled in
-by hand in the settings of the panel bus.
+by hand in the settings of the panel bus, in the fields **indicator light on code** and
+**indicator light off code**.
+
+Both fields are optional and can stay empty:
+
+| Field | Empty means | Used when nothing was learned |
+|-------|-------------|-------------------------------|
+| **Indicator light on code** | The code is learned from the frames the panel sends. | `1` (`0x01`) |
+| **Indicator light off code** | The code is learned from the frames the panel sends. | `0` (`0x00`) |
+
+A code that is filled in by hand wins over the learned one, and it applies to every button of the
+bus it belongs to.
 
 ### Button links
 
@@ -263,8 +279,35 @@ Home Assistant reads since 2026.3:
 The whole artwork is scaled to the target size, nothing is cut off, and the corners are rounded.
 The dark variants are the same artwork on a dark background.
 
+The icon that Home Assistant shows for the integration, and the icon that HACS shows in its list,
+both come from this folder. Home Assistant serves the images of a custom integration through its
+brands proxy, and HACS asks that same proxy for the icon of the integration, so the logo reaches
+both places without a separate registration anywhere.
+
 The source artwork lives in `assets/icon_source.png`. Run `python scripts/generate_brand.py` to
 regenerate every file after a brand change.
+
+## Listing in HACS and Home Assistant
+
+The repository is prepared for the checks that HACS and Home Assistant run on every push.
+
+| Check | How it is met |
+|-------|---------------|
+| `hacs.json` | Only the keys that HACS allows are used. `zip_release` is not used, so the installation follows the release tag of the repository. |
+| `manifest` | The manifest carries `domain`, `name`, `codeowners`, `documentation`, `issue_tracker` and `version`. |
+| `categories` | The manifest declares the category of the integration. |
+| `brands` | The brand images are shipped inside the integration, in `custom_components/symi_modbus/brand/`. |
+| `information` | The repository has a `README.md`. |
+| `description` and `topics` | The repository has a description and the topics of the list. |
+| `license` | The repository has a `LICENSE` file. |
+| `issues` | The issues of the repository are enabled. |
+
+The check for the images of the readme belongs to the plugins and the themes, an integration does
+not need one.
+
+The validation of Home Assistant runs the checks of the core, with the plugin for the manifest
+left out, because the manifest of a custom integration carries the keys `homeassistant`, `icon`
+and `categories` that the manifest schema of the core does not know.
 
 ## Home Assistant guidelines
 
@@ -296,8 +339,24 @@ docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
 - `scripts/verify_load.py` runs the hub against a simulated bus with several slaves and reports the
   timing of every round, the availability per slave and the memory growth. It also measures the
   panel side with a burst of four hundred button presses.
+- `scripts/make_release.py` builds the archive of a release. It holds the layout of the repository,
+  so it can be unpacked into the `custom_components` directory of a configuration, and it leaves
+  out the caches of Python and the files of the operating system.
 
 ## Changelog
+
+### 2.4.2
+
+- The two **codes for the indicator light** of a panel bus say what an empty field means. Both
+  fields are optional, an empty one lets the integration learn the code from the frames the panel
+  sends, and a code that is filled in by hand wins over the learned one.
+- The **installation through HACS** follows the release tag of the repository again. The archive
+  that was named in `hacs.json` pointed at an old version, and its layout did not fit the folder
+  Home Assistant unpacks an archive into.
+- **Things that are taken out of the configuration go away.** A panel that is taken off the bus, or
+  a coil that is taken off a slave, used to stay behind as a device with unavailable switches.
+- The archive of a release is **built by a script** now, so it holds the layout of the repository
+  and no files that the operating system adds on its own.
 
 ### 2.4.1
 

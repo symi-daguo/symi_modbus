@@ -115,3 +115,37 @@ def test_the_document_shows_the_version_of_the_manifest() -> None:
     assert shown.group(1) == manifest["version"], (
         f"the document shows {shown.group(1)}, the manifest {manifest['version']}"
     )
+
+
+def test_the_hacs_file_follows_the_rules_of_hacs() -> None:
+    """The HACS file only uses the keys HACS knows and names the same version."""
+    import json
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    hacs = json.loads((root / "hacs.json").read_text())
+    manifest = json.loads(
+        (root / "custom_components" / "symi_modbus" / "manifest.json").read_text()
+    )
+
+    allowed = {
+        "content_in_root",
+        "country",
+        "filename",
+        "hacs",
+        "hide_default_branch",
+        "homeassistant",
+        "persistent_directory",
+        "render_readme",
+        "zip_release",
+        "name",
+    }
+    assert set(hacs) <= allowed, f"hacs.json has keys HACS does not know: {set(hacs) - allowed}"
+    assert hacs["name"]
+    assert hacs["homeassistant"] == manifest["homeassistant"]
+    # HACS refuses a zip_release without a filename, and a fixed filename
+    # breaks with the next release, so the installation follows the tag of
+    # the repository instead.
+    assert not hacs.get("zip_release"), (
+        "zip_release needs a filename that has to be changed with every release"
+    )

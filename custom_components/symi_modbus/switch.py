@@ -7,6 +7,7 @@ from typing import Any
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -44,6 +45,11 @@ async def async_setup_entry(
     hub: ModbusHub = config_entry.runtime_data.hub
     panels: PanelManager = config_entry.runtime_data.panels
 
+    # The unique ids of the entities that are configured right now. Everything
+    # else that belongs to this entry was taken out of the configuration and
+    # has to go, otherwise it stays behind as a ghost.
+    expected: set[str] = set()
+
     for subentry in config_entry.get_subentries_of_type(SUBENTRY_SLAVE):
         slave = int(subentry.data[CONF_SLAVE])
         start = int(subentry.data.get(CONF_COIL_START, 0))
@@ -59,6 +65,7 @@ async def async_setup_entry(
             )
             for offset in range(count)
         ]
+        expected.update(entity.unique_id for entity in entities)
         async_add_entities(entities, config_subentry_id=subentry.subentry_id)
 
     for subentry in config_entry.get_subentries_of_type(SUBENTRY_PANEL):
@@ -79,7 +86,62 @@ async def async_setup_entry(
                         f"{subentry.subentry_id}_{panel_id}_{button}",
                     )
                 )
+        expected.update(entity.unique_id for entity in entities)
         async_add_entities(entities, config_subentry_id=subentry.subentry_id)
+
+    _async_remove_stale(hass, config_entry, expected)
+
+
+def _stale_entries(entries: list[Any], prefix: str, expected: set[str]) -> list[Any]:
+    """Return the entries of this integration that are not configured any more.
+
+    Only the entries whose unique id starts with the prefix of the entry belong
+    to this integration, the ones that are configured right now are kept.
+    """
+    return [
+        entry
+        for entry in entries
+        if entry.unique_id.startswith(prefix) and entry.unique_id not in expected
+    ]
+
+
+def _async_remove_stale(
+    hass: HomeAssistant, config_entry: ConfigEntry, expected: set[str]
+) -> None:
+    """Remove the entities that are not configured any more.
+
+    Home Assistant keeps the entities of a config entry in its registry, also
+    when the integration does not add them any more. A panel that was taken
+    off the bus, or a coil that was taken off a slave, would stay behind as a
+    device that shows nothing but unavailable switches.
+    """
+    registry = er.async_get(hass)
+    prefix = f"{config_entry.entry_id}_"
+
+    stale = _stale_entries(
+        er.async_entries_for_config_entry(registry, config_entry.entry_id),
+        prefix,
+        expected,
+    )
+    if not stale:
+        return
+
+    devices = dr.async_get(hass)
+    device_ids = {entry.device_id for entry in stale if entry.device_id}
+
+    for entry in stale:
+        _LOGGER.debug(
+            "Removing the entity %s, it is not configured any more", entry.entity_id
+        )
+        registry.async_remove(entry.entity_id)
+
+    for device_id in device_ids:
+        if er.async_entries_for_device(registry, device_id, include_disabled_entities=True):
+            continue
+        device = devices.async_get(device_id)
+        if device is not None:
+            _LOGGER.debug("Removing the device %s, it has no entities left", device.name)
+            devices.async_remove_device(device_id)
 
 
 class ModbusCoilSwitch(SwitchEntity):

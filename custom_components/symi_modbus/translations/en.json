@@ -119,6 +119,10 @@
             "led_frame_type": "Indicator light frame",
             "led_on_code": "Code for the light on",
             "led_off_code": "Code for the light off"
+          },
+          "data_description": {
+            "led_on_code": "Optional. The code that is written into the frame to turn an indicator light on. It applies to every button on this bus. Leave it empty to let the integration learn the code from the frames the panel reports, when no code is learned it uses 1 (0x01).",
+            "led_off_code": "Optional. The code that is written into the frame to turn an indicator light off. It applies to every button on this bus. Leave it empty to let the integration learn the code from the frames the panel reports, when no code is learned it uses 0 (0x00)."
           }
         },
         "reconfigure": {
@@ -136,6 +140,10 @@
             "led_frame_type": "Indicator light frame",
             "led_on_code": "Code for the light on",
             "led_off_code": "Code for the light off"
+          },
+          "data_description": {
+            "led_on_code": "Optional. The code that is written into the frame to turn an indicator light on. It applies to every button on this bus. Leave it empty to let the integration learn the code from the frames the panel reports, when no code is learned it uses 1 (0x01).",
+            "led_off_code": "Optional. The code that is written into the frame to turn an indicator light off. It applies to every button on this bus. Leave it empty to let the integration learn the code from the frames the panel reports, when no code is learned it uses 0 (0x00)."
           },
           "description": "The serial line the panels are connected to, together with their brand. The brand decides which protocol is used to read the buttons and to drive the indicator lights. Pick the port from the list or type a path, a port that this integration already uses is not in the list. The feedback frame is the report frame 0x04 of the protocol document, change it to the set frame 0x03 when the light of the panel stays dark. Note: a panel usually uses codes of its own for the state it reports, the integration learns and keeps them from the frames of the panel. Fill them in here when the codes of the panel cannot be learned."
         }
