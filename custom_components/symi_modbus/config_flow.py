@@ -39,6 +39,7 @@ from .const import (
     CONF_COIL_COUNT,
     CONF_FRAME,
     CONF_HOST,
+    CONF_LED_FRAME_TYPE,
     CONF_NAME,
     CONF_PANEL_ENTITIES,
     CONF_PANEL_IDS,
@@ -59,6 +60,8 @@ from .const import (
     DOMAIN,
     FRAME_MBAP,
     FRAME_RTU,
+    LED_FRAME_REPORT,
+    LED_FRAME_SET,
     MAX_COIL_COUNT,
     MAX_PANEL_BUTTONS,
     SERIAL_PORT_MANUAL_VALUE,
@@ -159,6 +162,15 @@ PANEL_FIELDS = {
     ),
     vol.Optional(CONF_STOPBITS, default=1): NumberSelector(
         NumberSelectorConfig(min=1, max=2, step=1, mode=NumberSelectorMode.BOX)
+    ),
+    vol.Optional(CONF_LED_FRAME_TYPE, default=LED_FRAME_REPORT): SelectSelector(
+        SelectSelectorConfig(
+            options=[
+                {"value": LED_FRAME_REPORT, "label": "Report (0x04)"},
+                {"value": LED_FRAME_SET, "label": "Set (0x03)"},
+            ],
+            mode=SelectSelectorMode.DROPDOWN,
+        )
     ),
     vol.Required("panel_start", default=1): NumberSelector(
         NumberSelectorConfig(min=1, max=247, mode=NumberSelectorMode.BOX)

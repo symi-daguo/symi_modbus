@@ -105,7 +105,7 @@
       "step": {
         "user": {
           "title": "Add a wall panel bus",
-          "description": "The serial line the panels are connected to, together with their brand. The brand decides which protocol is used to read the buttons and to drive the indicator lights. Pick the port from the list or type a path, a port that this integration already uses is not in the list.",
+          "description": "The serial line the panels are connected to, together with their brand. The brand decides which protocol is used to read the buttons and to drive the indicator lights. Pick the port from the list or type a path, a port that this integration already uses is not in the list. The feedback frame is the report frame 0x04 of the protocol document, change it to the set frame 0x03 when the light of the panel stays dark. Note: press a button on the panel once, the integration learns the address of that button and the light can be matched to it afterwards.",
           "data": {
             "brand": "Panel brand",
             "port": "Serial device",
@@ -115,7 +115,8 @@
             "stopbits": "Stopbits",
             "panel_start": "First panel address",
             "panel_count": "Number of panels",
-            "buttons": "Buttons per panel"
+            "buttons": "Buttons per panel",
+            "led_frame_type": "Indicator light frame"
           }
         },
         "reconfigure": {
@@ -129,9 +130,10 @@
             "stopbits": "Stopbits",
             "panel_start": "First panel address",
             "panel_count": "Number of panels",
-            "buttons": "Buttons per panel"
+            "buttons": "Buttons per panel",
+            "led_frame_type": "Indicator light frame"
           },
-          "description": "The serial line the panels are connected to, together with their brand. The brand decides which protocol is used to read the buttons and to drive the indicator lights. Pick the port from the list or type a path, a port that this integration already uses is not in the list."
+          "description": "The serial line the panels are connected to, together with their brand. The brand decides which protocol is used to read the buttons and to drive the indicator lights. Pick the port from the list or type a path, a port that this integration already uses is not in the list. The feedback frame is the report frame 0x04 of the protocol document, change it to the set frame 0x03 when the light of the panel stays dark. Note: press a button on the panel once, the integration learns the address of that button and the light can be matched to it afterwards."
         }
       },
       "error": {

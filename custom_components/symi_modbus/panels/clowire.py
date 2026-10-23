@@ -10,6 +10,7 @@ sits behind the checksum, it is not part of it.
 """
 from __future__ import annotations
 
+from ..const import LED_FRAME_REPORT
 from ..frames import crc16_fn
 from .base import ButtonEvent, PanelProtocol
 
@@ -40,12 +41,17 @@ class ClowireProtocol(PanelProtocol):
     brand = "clowire"
     default_buttons = 8
 
-    def __init__(self) -> None:
-        """Initialize the stream buffer."""
+    def __init__(self, led_frame_type: str = LED_FRAME_REPORT) -> None:
+        """Initialize the protocol."""
         self._buffer = bytearray()
 
     def build_led_frame(
-        self, panel_id: int, button: int, state: bool, device_addr: int = 1
+        self,
+        panel_id: int,
+        button: int,
+        state: bool,
+        device_addr: int = 1,
+        channel: int | None = None,
     ) -> bytes:
         """Build the frame that drives the indicator light of a button.
 

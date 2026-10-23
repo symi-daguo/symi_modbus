@@ -15,7 +15,7 @@ that belongs to it is a **subentry** that can be added, changed and removed on i
 
 | Item | Value |
 |------|--------|
-| Version | **2.2.4** |
+| Version | **2.3.0** |
 | Home Assistant | **2025.3.0** or newer (developed against 2026.10.2, verified on 2026.7.4) |
 | Python dependency | `pyserial`, `pyserial-asyncio-fast` (declared in `manifest.json`) |
 
@@ -234,6 +234,21 @@ docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
   panel side with a burst of four hundred button presses.
 
 ## Changelog
+
+### 2.3.0
+
+- The **indicator light of a panel** is driven with the frame the protocol
+  document asks for, the report frame `0x04`. Panels that only take the set
+  frame `0x03` can be served with the new **indicator light frame** setting of
+  a panel bus.
+- The **address of a button** is learned per button now. The protocol document
+  asks for the device address and the channel of the button event to be
+  repeated in the answer, and every button of a panel can use its own.
+- A **button press of a panel** is reported in the log at the info level, and
+  the first data a panel bus receives is reported as well, so a panel that does
+  not answer can be told apart from a panel that answers in a way the
+  integration does not understand.
+- The log of a slave tells the coils that were read.
 
 ### 2.2.4
 

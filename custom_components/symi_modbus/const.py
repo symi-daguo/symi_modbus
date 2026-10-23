@@ -76,6 +76,13 @@ BRAND_SYMI: Final = "symi"
 BRAND_CLOWIRE: Final = "clowire"
 BRAND_LF: Final = "lf"
 
+# The frame the indicator light of a panel is driven with. The protocol
+# document asks for a report frame, some panels of other vendors only take a
+# set frame, so it can be chosen.
+CONF_LED_FRAME_TYPE: Final = "led_frame_type"
+LED_FRAME_REPORT: Final = "report"
+LED_FRAME_SET: Final = "set"
+
 # Number of buttons a panel has, the limit of every supported brand.
 MAX_PANEL_BUTTONS: Final = 8
 

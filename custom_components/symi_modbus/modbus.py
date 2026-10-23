@@ -329,8 +329,14 @@ class ModbusHub:
     def handle_state(self, states: dict[int, bool], slave: int) -> None:
         """Store new states and push them to the listeners."""
         if slave not in self._slave_data:
+            options = self._slaves.get(slave, {})
+            start = int(options.get("start", 0))
             _LOGGER.info(
-                "Slave %s answered, %s coil(s) read", slave, len(states)
+                "Slave %s answered, %s coil(s) read (coils %s-%s)",
+                slave,
+                len(states),
+                start,
+                start + len(states) - 1,
             )
         self._slave_data[slave] = states
         for callback in self._callbacks:

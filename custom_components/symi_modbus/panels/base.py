@@ -21,6 +21,9 @@ class ButtonEvent:
     device_addr: int = 1
     """Logical device address of the panel, used to address the answer."""
 
+    channel: int = 0
+    """Channel the panel used for this button, 0 when it is the button number."""
+
 
 class PanelProtocol(ABC):
     """Interface of a panel brand protocol.
@@ -38,9 +41,18 @@ class PanelProtocol(ABC):
 
     @abstractmethod
     def build_led_frame(
-        self, panel_id: int, button: int, state: bool, device_addr: int = 1
+        self,
+        panel_id: int,
+        button: int,
+        state: bool,
+        device_addr: int = 1,
+        channel: int | None = None,
     ) -> bytes:
-        """Build the frame that turns the indicator light of a button on or off."""
+        """Build the frame that turns the indicator light of a button on or off.
+
+        The address of the button has to be the one the panel used in its
+        button event, the panel ignores a frame with another address.
+        """
 
     @abstractmethod
     def parse_frames(self, data: bytes) -> list[ButtonEvent]:

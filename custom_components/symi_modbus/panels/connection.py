@@ -109,6 +109,7 @@ class PanelConnection:
         self._queue: deque[tuple[bytes, tuple[int, int, bool] | None]] = deque()
         self._queue_event = asyncio.Event()
         self._echoes: list[tuple[int, int, bool, float]] = []
+        self._seen_data = False
         self._tasks: list[asyncio.Task] = []
 
     @property
@@ -217,6 +218,19 @@ class PanelConnection:
 
     def _handle_chunk(self, chunk: bytes) -> None:
         """Parse the received bytes and report the button events."""
+        if not self._seen_data:
+            self._seen_data = True
+            _LOGGER.info(
+                "Panel bus %s received its first data: %s",
+                self._port,
+                chunk[:64].hex(" ").upper(),
+            )
+        _LOGGER.debug(
+            "Panel bus %s received %s byte(s): %s",
+            self._port,
+            len(chunk),
+            chunk[:64].hex(" ").upper(),
+        )
         for event in self._protocol.parse_frames(chunk):
             if self._is_echo(event):
                 continue
@@ -238,10 +252,17 @@ class PanelConnection:
         return False
 
     async def async_write_led(
-        self, panel_id: int, button: int, state: bool, device_addr: int = 1
+        self,
+        panel_id: int,
+        button: int,
+        state: bool,
+        device_addr: int = 1,
+        channel: int | None = None,
     ) -> None:
         """Queue the frame that drives the indicator light of a button."""
-        frame = self._protocol.build_led_frame(panel_id, button, state, device_addr)
+        frame = self._protocol.build_led_frame(
+            panel_id, button, state, device_addr, channel
+        )
         await self._async_enqueue(frame, (panel_id, button, state))
 
     async def async_write_raw(self, frame: bytes) -> None:

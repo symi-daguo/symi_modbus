@@ -10,6 +10,7 @@ and the frame tail.
 """
 from __future__ import annotations
 
+from ..const import LED_FRAME_REPORT, LED_FRAME_SET
 from .base import ButtonEvent, PanelProtocol
 
 FRAME_HEADER = 0x7E
@@ -51,28 +52,38 @@ class SymiProtocol(PanelProtocol):
     brand = "symi"
     default_buttons = 8
 
-    def __init__(self) -> None:
-        """Initialize the stream buffer."""
+    def __init__(self, led_frame_type: str = LED_FRAME_REPORT) -> None:
+        """Initialize the stream buffer and the kind of feedback frame."""
         self._buffer = bytearray()
+        self._led_frame_type = led_frame_type
 
     def build_led_frame(
-        self, panel_id: int, button: int, state: bool, device_addr: int = 1
+        self,
+        panel_id: int,
+        button: int,
+        state: bool,
+        device_addr: int = 1,
+        channel: int | None = None,
     ) -> bytes:
         """Build the frame that drives the indicator light of a button.
 
-        The address fields must match the ones of the button event, otherwise
-        the panel ignores the frame.
+        The protocol document asks for a report frame, the address fields have
+        to be the ones the panel used in its button event, otherwise the
+        panel ignores the frame and the light stays dark.
         """
+        data_type = (
+            DATA_TYPE_SET if self._led_frame_type == LED_FRAME_SET else DATA_TYPE_REPORT
+        )
         body = bytes(
             [
                 FRAME_HEADER,
                 panel_id & 0xFF,
-                DATA_TYPE_SET,
+                data_type,
                 0x0F,
                 DEVICE_TYPE_LIGHT,
                 0x00,
                 device_addr & 0xFF,
-                button & 0xFF,
+                (button if channel is None else channel) & 0xFF,
                 0x00,
                 0x00,
                 0x00,
@@ -152,6 +163,7 @@ class SymiProtocol(PanelProtocol):
                     button=button,
                     state=op_info[0] != 0,
                     device_addr=device_addr,
+                    channel=channel,
                 )
             ]
 

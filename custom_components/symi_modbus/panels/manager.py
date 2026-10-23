@@ -7,6 +7,7 @@ from collections.abc import Callable
 from homeassistant.core import HomeAssistant
 
 from . import PROTOCOLS
+from ..const import LED_FRAME_REPORT
 from .base import ButtonEvent, PanelProtocol
 from .connection import PanelConnection
 
@@ -33,7 +34,9 @@ class PanelManager:
         self._buses: dict[str, PanelConnection] = {}
         self._protocols: dict[str, PanelProtocol] = {}
         self._panel_ids: dict[str, list[int]] = {}
-        self._device_addrs: dict[tuple[str, int], int] = {}
+        # The address of a button, learned from the button event of the
+        # panel. Every button of a panel can use its own address.
+        self._addresses: dict[tuple[str, int, int], tuple[int, int]] = {}
         self._buttons: dict[tuple[str, int, int], tuple[ButtonCallback, ButtonCallback]] = {}
         self._event_listeners: list[EventCallback] = []
 
@@ -68,13 +71,14 @@ class PanelManager:
         port: str,
         brand: str,
         panel_ids: list[int],
+        led_frame_type: str = LED_FRAME_REPORT,
         baudrate: int = 9600,
         bytesize: int = 8,
         parity: str = "N",
         stopbits: int = 1,
     ) -> None:
         """Open a panel bus for a panel subentry."""
-        protocol = PROTOCOLS[brand]()
+        protocol = PROTOCOLS[brand](led_frame_type)
         connection = PanelConnection(
             hass=self._hass,
             port=port,
@@ -110,8 +114,8 @@ class PanelManager:
         connection = self._buses.pop(subentry_id, None)
         self._protocols.pop(subentry_id, None)
         self._panel_ids.pop(subentry_id, None)
-        for key in [key for key in self._device_addrs if key[0] == subentry_id]:
-            self._device_addrs.pop(key, None)
+        for key in [key for key in self._addresses if key[0] == subentry_id]:
+            self._addresses.pop(key, None)
         for key in [key for key in self._buttons if key[0] == subentry_id]:
             self._buttons.pop(key, None)
         if connection is not None:
@@ -155,8 +159,12 @@ class PanelManager:
                 panel_id,
             )
             return
-        device_addr = self._device_addrs.get((subentry_id, panel_id), 1)
-        await connection.async_write_led(panel_id, button, state, device_addr)
+        device_addr, channel = self._addresses.get(
+            (subentry_id, panel_id, button), (1, button)
+        )
+        await connection.async_write_led(
+            panel_id, button, state, device_addr, channel
+        )
 
     def _make_handler(self, subentry_id: str) -> Callable[[ButtonEvent], None]:
         """Return the handler that forwards the events of one bus."""
@@ -177,11 +185,12 @@ class PanelManager:
     def _handle_event(self, subentry_id: str, event: ButtonEvent) -> None:
         """Forward a button event to the entities and the listeners."""
         if event.button:
-            # Remember the logical device address, the indicator light has to
-            # be written with the same address the panel used.
-            self._device_addrs[(subentry_id, event.panel_id)] = event.device_addr
+            # The indicator light has to be written with the very address the
+            # panel used in its button event, every button can use its own.
+            key = (subentry_id, event.panel_id, event.button)
+            self._addresses[key] = (event.device_addr, event.channel or event.button)
 
-        _LOGGER.debug(
+        _LOGGER.info(
             "Panel %s button %s reported %s",
             event.panel_id,
             event.button,

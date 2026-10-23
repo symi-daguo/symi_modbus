@@ -10,6 +10,7 @@ whole, so the state of the other buttons has to be sent along.
 """
 from __future__ import annotations
 
+from ..const import LED_FRAME_REPORT
 from ..frames import crc16_fn
 from .base import ButtonEvent, PanelProtocol
 
@@ -42,13 +43,18 @@ class LfProtocol(PanelProtocol):
     brand = "lf"
     default_buttons = 8
 
-    def __init__(self) -> None:
+    def __init__(self, led_frame_type: str = LED_FRAME_REPORT) -> None:
         """Initialize the stream buffer and the known indicator light states."""
         self._buffer = bytearray()
         self._masks: dict[int, int] = {}
 
     def build_led_frame(
-        self, panel_id: int, button: int, state: bool, device_addr: int = 1
+        self,
+        panel_id: int,
+        button: int,
+        state: bool,
+        device_addr: int = 1,
+        channel: int | None = None,
     ) -> bytes:
         """Build the frame that drives the indicator light of a button.
 

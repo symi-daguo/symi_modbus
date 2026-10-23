@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 
+from custom_components.symi_modbus.const import LED_FRAME_SET
 from custom_components.symi_modbus.panels import clowire, lf, symi
 
 
@@ -20,12 +21,56 @@ class TestSymiProtocol:
     """The Symi protocol uses its own framed dialect."""
 
     def test_the_light_frame_has_the_documented_layout(self) -> None:
-        """The frame carries the panel address, the button and the state."""
+        """The frame is a report frame, the protocol document asks for that."""
         protocol = symi.SymiProtocol()
         frame = protocol.build_led_frame(0x02, 3, True)
-        assert _hex(frame) == "7E 02 03 0F 01 00 01 03 00 00 00 00 01 A0 7D"
+        # The same frame the Node-RED implementation builds.
+        assert _hex(frame) == "7E 02 04 0F 01 00 01 03 00 00 00 00 01 FD 7D"
         assert frame[0] == symi.FRAME_HEADER
         assert frame[-1] == symi.FRAME_TAIL
+        assert frame[2] == symi.DATA_TYPE_REPORT
+
+    def test_the_light_frame_can_be_a_set_frame(self) -> None:
+        """Some panels only take a set frame, so it can be chosen."""
+        protocol = symi.SymiProtocol(LED_FRAME_SET)
+        frame = protocol.build_led_frame(0x02, 3, True)
+        assert _hex(frame) == "7E 02 03 0F 01 00 01 03 00 00 00 00 01 A0 7D"
+        assert frame[2] == symi.DATA_TYPE_SET
+
+    def test_a_button_event_of_a_real_panel_is_parsed(self) -> None:
+        """The frame a panel sends when a button is pressed is understood.
+
+        The frame is the one the protocol document of the vendor shows for
+        the third button of the panel with the address two.
+        """
+        protocol = symi.SymiProtocol()
+        events = protocol.parse_frames(
+            bytes.fromhex("7E 02 03 0F 01 00 01 03 00 00 00 00 01 A0 7D")
+        )
+        assert len(events) == 1
+        assert events[0].panel_id == 0x02
+        assert events[0].button == 3
+        assert events[0].state is True
+        assert events[0].device_addr == 0x01
+        assert events[0].channel == 0x03
+
+    def test_the_address_of_the_button_is_learned(self) -> None:
+        """The light is written with the address the panel used."""
+        protocol = symi.SymiProtocol()
+        events = protocol.parse_frames(
+            bytes.fromhex("7E 02 03 0F 01 00 01 03 00 00 00 00 01 A0 7D")
+        )
+        frame = protocol.build_led_frame(
+            events[0].panel_id,
+            events[0].button,
+            True,
+            events[0].device_addr,
+            events[0].channel,
+        )
+        # Only the data type differs from the button event.
+        assert frame[1] == 0x02
+        assert frame[6] == 0x01
+        assert frame[7] == 0x03
 
     def test_a_pressed_button_is_reported(self) -> None:
         """The frame of a button press is turned into a button event."""
@@ -69,7 +114,7 @@ class TestSymiProtocol:
 
     def test_a_wrong_checksum_is_accepted_for_a_button_event(self) -> None:
         """Panels of other vendors send button events with a broken checksum."""
-        protocol = symi.SymiProtocol()
+        protocol = symi.SymiProtocol(LED_FRAME_SET)
         frame = bytearray(protocol.build_led_frame(0x02, 1, True))
         frame[13] ^= 0xFF
         assert protocol.parse_frames(bytes(frame))
@@ -78,8 +123,7 @@ class TestSymiProtocol:
         """A frame that is not a button event has to pass the checksum."""
         protocol = symi.SymiProtocol()
         frame = bytearray(protocol.build_led_frame(0x02, 1, True))
-        frame[2] = symi.DATA_TYPE_REPORT
-        frame[13] ^= 0xFF
+        frame[12] ^= 0xFF
         assert protocol.parse_frames(bytes(frame)) == []
 
     def test_noise_between_two_frames_is_skipped(self) -> None:
@@ -261,7 +305,7 @@ class TestLfProtocol:
 @pytest.mark.parametrize(
     ("brand", "expected"),
     [
-        ("symi", "7E 02 03 0F 01 00 01 01 00 00 00 00 01 F2 7D"),
+        ("symi", "7E 02 04 0F 01 00 01 01 00 00 00 00 01 AF 7D"),
         ("clowire", "02 06 10 21 00 01 1C F3 AA"),
         ("lf", "02 06 10 08 01 01 CC AB"),
     ],
