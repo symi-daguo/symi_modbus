@@ -93,6 +93,13 @@ class LinkageGroup:
                 # panel answers the press at once.
                 self._hass.async_create_task(self._async_apply(target, desired))
                 continue
+            if source in self._relays:
+                # The relay changed, so the light of the panel is written again
+                # even when the entity of the panel shows the wanted state
+                # already. The light on the panel is the one that counts, the
+                # entity can be out of step with it.
+                self._hass.async_create_task(self._async_apply(target, desired))
+                continue
             if current.state == desired:
                 # The target already shows the wanted state, writing it again
                 # would only put another frame on the bus.

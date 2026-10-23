@@ -237,3 +237,24 @@ async def test_a_scene_link_still_drives_the_relay() -> None:
     assert ("switch", "turn_on", {"entity_id": relay_entity}) in hass.services.calls
     # The light of the button answers the press at once.
     assert ("switch", "turn_on", {"entity_id": panel_entity}) in hass.services.calls
+
+
+@pytest.mark.asyncio
+async def test_the_light_of_a_panel_is_written_again_when_the_relay_changes() -> None:
+    """The light on the panel is written again when the relay changes.
+
+    The entity of the panel can be out of step with the light on the panel, so
+    the frame goes out even when the entity already shows the wanted state.
+    """
+    hass = FakeHass(
+        {"switch.panel": FakeState("on"), "switch.relay": FakeState("off")}
+    )
+    group = LinkageGroup(hass, ["switch.panel"], ["switch.relay"], "test")
+    await group.async_start()
+
+    hass.states["switch.relay"] = "on"
+    await _trigger(hass, group, "switch.relay", "on")
+
+    assert hass.services.calls == [
+        ("switch", "turn_on", {"entity_id": "switch.panel"})
+    ]

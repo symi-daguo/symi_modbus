@@ -300,8 +300,15 @@ class PanelConnection:
                 await self._writer.drain()
                 if echo is not None:
                     self._echoes.append((*echo, monotonic()))
+                    _LOGGER.debug(
+                        "Panel bus %s: the light of panel %s button %s is set to %s",
+                        self._port,
+                        echo[0],
+                        echo[1],
+                        "on" if echo[2] else "off",
+                    )
                 _LOGGER.debug(
-                    "Panel bus %s: sent %s", self._port, frame.hex(" ")
+                    "Panel bus %s: sent %s", self._port, frame.hex(" ").upper()
                 )
                 await asyncio.sleep(SERIAL_POST_WRITE_DELAY)
             except asyncio.CancelledError:

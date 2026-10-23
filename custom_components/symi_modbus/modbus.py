@@ -430,7 +430,7 @@ class ModbusHub:
         if slave in self._slave_data and address in self._slave_data[slave]:
             self._slave_data[slave][address] = value
 
-        _LOGGER.info("Wrote coil %s of slave %s to %s", address, slave, value)
+        _LOGGER.debug("Wrote coil %s of slave %s to %s", address, slave, value)
         return True
 
     async def write_coils(self, slave: int, address: int, values: list[bool]) -> bool:

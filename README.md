@@ -31,8 +31,8 @@ slaves, the panels and the links be managed separately inside one entry.
   polled on its own and gets its own device in Home Assistant.
 - **Coil count per slave**, so a 16 channel module does not create 16 switches that never
   change.
-- **Wall panels**: the panels of the **Symi**, **Clowire** and **LF** brands are read on their own
-  serial line and every button becomes a switch entity.
+- **Wall panels**: the panels are read on their own serial line and every button becomes a
+  switch entity. The protocol of the panel is chosen when the bus is added.
 - **Button links**: a panel button can drive one or more relays, and a relay can light up on one
   or more panel buttons.
 - **Persistent connection** with automatic reconnect. The link is kept open between requests, so
@@ -120,22 +120,16 @@ the interface keeps that name, a later change of the configuration does not put 
 
 ## Wall panels
 
-A **panel bus** is one serial line with the panels of one brand. The brand decides which protocol
-is used, the same dialects the original Node-RED node speaks:
-
-| Brand | Protocol |
-|-------|----------|
-| Symi (亖米) | light weight framed protocol, `0x7E … 0x7D` with a CRC-8 |
-| Clowire (克伦威尔) | Modbus like with an extra frame tail `0xAA` behind the CRC |
-| LF (拉斐) | fixed eight byte frames, the indicator lights are a bit mask in register `0x1008` |
+A **panel bus** is one serial line with the wall panels that hang on it. The brand of the panels
+is chosen when the bus is added, because every brand speaks its own protocol.
 
 Each panel on the bus gets its own device, each button its own switch entity. The state of the
 entity is the state of the indicator light: a press of the button turns the entity on, and
 writing the entity writes the indicator light back to the panel.
 
-The frames of the LF panels are written as a whole, so the integration keeps track of the state
-of every button of a panel. The LF panels also need to be put into the mode where the host owns
-the indicator lights, which the integration does when the bus starts.
+The serial line of a panel bus is its own line, a panel bus and a Modbus master never share
+one. A port that is already in use is marked in the picker and cannot be saved, because two
+programs on one port split the bytes between them.
 
 ### The codes of a panel
 
@@ -165,7 +159,9 @@ A **button link** binds panel buttons to relays. The state is shared in both dir
 
 - a panel button that is switched on drives the relays of the link, and lights up its own
   indicator at once,
-- a relay that changes lights up the panel buttons of the link.
+- a relay that changes lights up the panel buttons of the link. The frame goes out even when
+  the entity of the panel already shows the wanted state, because the light on the panel is the
+  one that counts.
 
 The link knows the kind of the relay it drives:
 
@@ -181,6 +177,40 @@ scene can be used next to each other.
 One button can be linked to several relays, and one relay can be linked to several buttons, a
 link holds both groups. The link only reacts to a change, a target that already shows the wanted
 state is left alone, so no needless frames go on the bus.
+
+## How to use it
+
+The integration is set up in three steps, all of them from **Settings → Devices & services**.
+
+**1. The master.** *Add integration → Symi Modbus* starts the flow. Pick **Serial** or **TCP**,
+give the line its settings and confirm the first slave. The entry that is created is the master,
+it holds the connection to the bus.
+
+**2. The slaves.** On the page of the entry the button **Add slave** opens the form of a slave.
+Fill in the unit ID of the device, the first coil and the number of coils. The number of slaves
+adds several of them at once, their addresses follow the one that was entered. A slave becomes a
+device of its own with one switch entity per coil.
+
+**3. The panels and the links.** **Add panel bus** opens the form of the line the wall panels
+hang on: the brand of the panels, the serial port, the baud rate and the addresses of the
+panels on that line. Every button of a panel becomes a switch entity.
+
+**Add button link** ties the two together. Pick the panel buttons on one side and the relays of
+the Modbus slaves on the other, and choose the kind of the relay:
+
+| Mode | What the relay does | The indicator of the panel |
+|------|---------------------|-----------------------------|
+| **Switch** (default) | Holds its state. | Follows the state of the relay. |
+| **Scene** | Only triggers a scene once. | Answers the press, the relay falling back does not switch it off again. |
+
+From then on the link works in both directions: a press of a panel button drives the relays and
+lights up its own indicator at once, and a relay that is switched in Home Assistant lights up
+the panel buttons that are linked to it.
+
+**Every part can be changed or removed on its own.** The gear icon of a slave, a panel bus or a
+link opens its form, the three dots next to it remove it. A change only touches the part it was
+made on, the other slaves, panel buses and links keep their settings. A name that was changed by
+hand is kept.
 
 ## How a slave is read
 
@@ -269,6 +299,16 @@ docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
 
 ## Changelog
 
+### 2.4.1
+
+- The **light of a panel is written again whenever the relay of the link changes**, even when the
+  entity of the panel already shows the wanted state. The light on the panel is the one that
+  counts, the entity can be out of step with it. This is what made the light fall out of step
+  with the relay.
+- The **write of a coil** is logged at the debug level, so the log of a running system stays
+  quiet.
+- The log of the panel bus tells which button was set to which state and which bytes went out.
+
 ### 2.4.0
 
 - A **link knows whether it drives a switch or a scene**. A relay that only triggers a scene has
@@ -348,8 +388,8 @@ docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
 - The slaves, the wall panel buses and the button links become **subentries** of the config
   entry, so they can be added, changed and removed on their own from the page of the entry.
   The lowest supported Home Assistant version is 2025.3.0, the first release with subentries.
-- The **wall panels** of the **Symi**, **Clowire** and **LF** brands are supported. The brand
-  decides which protocol is used to read the buttons and to drive the indicator lights.
+- The **wall panels** are supported. The protocol is chosen per panel bus, so the panels of
+  different brands can be used next to each other.
 - **Button links** keep a panel button and the relays it drives in sync, in both directions. One
   button can drive several relays and one relay can light up on several buttons.
 - The scan interval accepts **fractional values**, so half a second is possible as well.
