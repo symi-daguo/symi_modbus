@@ -52,6 +52,9 @@ class PanelManager:
         self._manual_codes: dict[str, tuple[int | None, int | None]] = {}
         # What to tell in the log when a bus is up.
         self._bus_info: dict[str, tuple[str, str, str]] = {}
+        # The buttons a panel reported that have no entity, so the warning
+        # about them is written once.
+        self._warned_buttons: set[tuple[str, int, int]] = set()
         self._event_listeners: list[EventCallback] = []
 
     @property
@@ -299,6 +302,7 @@ class PanelManager:
             # panel used in its button event, every button can use its own.
             key = (subentry_id, event.panel_id, event.button)
             self._addresses[key] = (event.device_addr, event.channel or event.button)
+            self._warn_about_missing_entity(subentry_id, event)
 
         _LOGGER.info(
             "Panel %s button %s reported %s",
@@ -319,6 +323,27 @@ class PanelManager:
                 listener(subentry_id, event)
             except Exception:  # noqa: BLE001
                 _LOGGER.exception("Panel button listener failed")
+
+    def _warn_about_missing_entity(self, subentry_id: str, event: ButtonEvent) -> None:
+        """Tell in the log when a panel reports a button that has no entity.
+
+        A panel numbers its keys with a channel and the keys that drive a scene
+        are numbered higher than the ones that drive a light. When such a key
+        is pressed and the panel bus has no entity for it, the key cannot be
+        linked to a relay, so the number of buttons has to be raised.
+        """
+        key = (subentry_id, event.panel_id, event.button)
+        if key in self._buttons or key in self._warned_buttons:
+            return
+        self._warned_buttons.add(key)
+        _LOGGER.warning(
+            "The panel %s reported the button %s, it has no entity. Set the "
+            "number of buttons of the panel bus to %s or more, then the key "
+            "can be linked to a relay",
+            event.panel_id,
+            event.button,
+            event.button,
+        )
 
     def _handle_state(self, subentry_id: str, connected: bool) -> None:
         """Tell the entities of a bus whether it is up."""

@@ -72,35 +72,44 @@ class LinkageGroup:
         if source in self._panels:
             # A press of a button lights its own indicator right away and
             # drives the relays of the link.
-            targets = [*self._relays, source]
+            if self._mode == MODE_SCENE:
+                # A scene is triggered, it does not keep a state. The relay is
+                # turned on every time, so the scene fires again and again.
+                # A button of a panel is a toggle, following its state would
+                # switch the relay off on the second press.
+                relay_state = STATE_ON
+            else:
+                relay_state = new_state.state
+            targets = [(relay, relay_state) for relay in self._relays]
+            targets.append((source, new_state.state))
         elif source in self._relays:
             if self._mode == MODE_SCENE:
                 # A scene is a single action without a lasting state, so the
                 # indicator of the panel is not tied to it. Following the state
                 # would switch the light off again right away.
                 return
-            targets = self._panels
+            targets = [(panel, new_state.state) for panel in self._panels]
         else:
             return
 
-        desired = new_state.state
-        for target in targets:
+        for target, desired in targets:
             current = self._hass.states.get(target)
             if current is None:
                 continue
-            if target == source:
+            always = (
                 # The button itself always gets the frame, so the light of the
                 # panel answers the press at once.
-                self._hass.async_create_task(self._async_apply(target, desired))
-                continue
-            if source in self._relays:
+                target == source
                 # The relay changed, so the light of the panel is written again
                 # even when the entity of the panel shows the wanted state
                 # already. The light on the panel is the one that counts, the
                 # entity can be out of step with it.
-                self._hass.async_create_task(self._async_apply(target, desired))
-                continue
-            if current.state == desired:
+                or source in self._relays
+                # A scene is triggered every time, so the frame goes out even
+                # when the relay already shows the wanted state.
+                or self._mode == MODE_SCENE
+            )
+            if not always and current.state == desired:
                 # The target already shows the wanted state, writing it again
                 # would only put another frame on the bus.
                 continue

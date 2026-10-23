@@ -11,7 +11,7 @@
 
 | | |
 |---|---|
-| 版本 | **2.6.0** |
+| 版本 | **2.6.1** |
 | Home Assistant | **2025.3.0** 及以上 |
 | 依赖 | `pyserial`、`pyserial-asyncio-fast` |
 
@@ -140,6 +140,14 @@ docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
 - `scripts/generate_brand.py` 从 `assets/icon_source.png` 重新生成品牌图片。
 
 ## 更新日志
+
+### 2.6.1
+
+- **场景每次按下都会被触发**。面板的按键是切换型的，跟着它的状态走，第二次按下就会把继电器关掉，
+  场景也就不会触发。
+- 面板现在最多可以有 **32 个按键**。面板用 channel 给按键编号，驱动场景的按键编号比驱动灯的按键
+  高，所以面板上报的 channel 可能远大于八。
+- 面板**上报了没有实体的按键**时，日志会说明，并把面板总线该设成多少个按键写清楚。
 
 ### 2.6.0
 

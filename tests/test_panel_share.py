@@ -1,6 +1,8 @@
 """Panel buses can share a serial port."""
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from custom_components.symi_modbus.panels.base import ButtonEvent
@@ -47,6 +49,7 @@ def _manager() -> PanelManager:
     manager._buttons = {}
     manager._manual_codes = {}
     manager._bus_info = {}
+    manager._warned_buttons = set()
     manager._event_listeners = []
     return manager
 
@@ -136,3 +139,23 @@ def test_the_panel_of_a_shared_port_is_found(brand: str) -> None:
 
     assert manager.panel_ids("bus1") == [1, 2]
     assert manager.panel_ids("bus2") == []
+
+
+def test_a_panel_can_have_more_than_eight_buttons() -> None:
+    """A panel numbers its keys with a channel, the scenes are numbered higher."""
+    from custom_components.symi_modbus.const import MAX_PANEL_BUTTONS
+
+    assert MAX_PANEL_BUTTONS >= 32
+
+
+def test_a_button_without_an_entity_is_reported(caplog) -> None:
+    """A panel that reports a button without an entity is reported."""
+    manager = _manager()
+
+    with caplog.at_level(logging.WARNING):
+        manager._handle_event(
+            "bus1", ButtonEvent(panel_id=1, button=17, state=True)
+        )
+
+    assert "reported the button 17" in caplog.text
+    assert "17 or more" in caplog.text

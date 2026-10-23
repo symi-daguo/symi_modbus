@@ -13,7 +13,7 @@ wall panel buses and the links between a panel button and a relay.
 
 | | |
 |---|---|
-| Version | **2.6.0** |
+| Version | **2.6.1** |
 | Home Assistant | **2025.3.0** or newer |
 | Dependencies | `pyserial`, `pyserial-asyncio-fast` |
 
@@ -163,6 +163,16 @@ docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
 - `scripts/generate_brand.py` regenerates the brand images from `assets/icon_source.png`.
 
 ## Changelog
+
+### 2.6.1
+
+- A **scene is triggered with every press** of its button. A button of a panel is a toggle, so
+  following its state switched the relay off on the second press and the scene did not fire.
+- A panel can have **up to 32 buttons** now. A panel numbers its keys with a channel and the keys
+  that drive a scene are numbered higher than the ones that drive a light, so a panel can report a
+  channel that is well above eight.
+- A panel that **reports a button without an entity** says so in the log and names the number of
+  buttons the panel bus has to be set to.
 
 ### 2.6.0
 
