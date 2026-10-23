@@ -3,7 +3,10 @@ from __future__ import annotations
 
 from custom_components.symi_modbus.const import LED_FRAME_SET
 from custom_components.symi_modbus.panels.base import ButtonEvent
-from custom_components.symi_modbus.panels.symi import SymiProtocol
+from custom_components.symi_modbus.panels.symi import (
+    SymiProtocol,
+    calculate_crc8,
+)
 
 
 def _press(code: int) -> ButtonEvent:
@@ -175,3 +178,44 @@ def test_the_frame_carries_the_code_that_was_asked_for() -> None:
 
     # The code sits in the operation information, the twelfth byte.
     assert frame[12] == 16
+
+
+def test_a_frame_that_was_damaged_on_the_line_is_dropped() -> None:
+    """A frame that carries the address of another panel is dropped.
+
+    Two panels that report at the same time, or a panel that reports while a
+    frame of ours goes out, damage each other on the line. The address byte of
+    the damaged frame then belongs to the other panel, and so does its
+    checksum.
+    """
+    protocol = SymiProtocol()
+    protocol.known_addresses = {1, 2}
+
+    # The frame of panel 2, with the address of panel 1 written over it.
+    good = protocol.build_led_frame(0x02, 1, True)
+    damaged = bytearray(good)
+    damaged[1] = 0x01
+
+    assert protocol.parse_frames(bytes(damaged)) == []
+
+
+def test_a_panel_with_a_broken_checksum_is_still_understood() -> None:
+    """A panel that sends frames with a broken checksum is still understood."""
+    protocol = SymiProtocol()
+    protocol.known_addresses = {1, 2}
+
+    # A button event of panel 1 with a checksum that fits no other panel.
+    body = bytearray(
+        bytes.fromhex("7E 01 03 0F 01 00 01 01 00 00 00 00 01")
+    )
+    taken = set()
+    for address in (1, 2):
+        body[1] = address
+        taken.add(calculate_crc8(bytes(body)))
+    wrong = next(value for value in range(256) if value not in taken)
+    body[1] = 0x01
+    frame = bytes(body) + bytes([wrong, 0x7D])
+
+    events = protocol.parse_frames(frame)
+    assert len(events) == 1
+    assert events[0].panel_id == 1

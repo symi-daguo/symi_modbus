@@ -11,7 +11,7 @@
 
 | | |
 |---|---|
-| 版本 | **2.6.2** |
+| 版本 | **2.6.3** |
 | Home Assistant | **2025.3.0** 及以上 |
 | 依赖 | `pyserial`、`pyserial-asyncio-fast` |
 
@@ -140,6 +140,12 @@ docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
 - `scripts/generate_brand.py` 从 `assets/icon_source.png` 重新生成品牌图片。
 
 ## 更新日志
+
+### 2.6.3
+
+- **在总线上被损坏的帧会被丢掉**。两块面板同时上报，或者面板上报时我们正好在发帧，它们会互相
+  损坏，而被损坏那一帧的地址字节属于另一块面板。以前这种帧会被当成这块面板的按键，于是另一块
+  面板的按键能带动这一块的指示灯。
 
 ### 2.6.2
 

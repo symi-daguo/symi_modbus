@@ -13,7 +13,7 @@ wall panel buses and the links between a panel button and a relay.
 
 | | |
 |---|---|
-| Version | **2.6.2** |
+| Version | **2.6.3** |
 | Home Assistant | **2025.3.0** or newer |
 | Dependencies | `pyserial`, `pyserial-asyncio-fast` |
 
@@ -163,6 +163,13 @@ docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
 - `scripts/generate_brand.py` regenerates the brand images from `assets/icon_source.png`.
 
 ## Changelog
+
+### 2.6.3
+
+- A frame that was **damaged on the line** is dropped. Two panels that report at the same time, or
+  a panel that reports while a frame of ours goes out, damage each other, and the address byte of
+  the damaged frame belongs to the other panel. The frame was taken for a button of this panel
+  before, so a button of one panel could drive the panel of the other one.
 
 ### 2.6.2
 

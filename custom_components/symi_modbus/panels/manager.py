@@ -133,6 +133,12 @@ class PanelManager:
                 port, brand, led_frame_type, baudrate, bytesize, parity, stopbits
             )
 
+        # The protocol has to know the addresses of the panels on the line, so
+        # a frame that was damaged on the line is told apart from a frame of a
+        # panel with a broken checksum.
+        if hasattr(protocol, "known_addresses"):
+            protocol.known_addresses.update(int(panel) for panel in panel_ids)
+
         self._members.setdefault(port, []).append(subentry_id)
         self._ports[subentry_id] = port
         self._panel_ids[subentry_id] = list(panel_ids)

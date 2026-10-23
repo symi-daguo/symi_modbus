@@ -10,8 +10,12 @@ and the frame tail.
 """
 from __future__ import annotations
 
+import logging
+
 from ..const import LED_FRAME_REPORT, LED_FRAME_SET
 from .base import ButtonEvent, PanelProtocol
+
+_LOGGER = logging.getLogger(__name__)
 
 FRAME_HEADER = 0x7E
 FRAME_TAIL = 0x7D
@@ -56,6 +60,26 @@ class SymiProtocol(PanelProtocol):
         """Initialize the stream buffer and the kind of feedback frame."""
         self._buffer = bytearray()
         self._led_frame_type = led_frame_type
+        # The addresses of the panels on the line. A frame that was damaged on
+        # the line carries the address of another panel, and that is how it is
+        # told apart from a frame of a panel with a broken checksum.
+        self.known_addresses: set[int] = set()
+
+    def _fits_another_panel(self, frame: bytes) -> bool:
+        """Return whether the checksum of the frame fits another panel.
+
+        Two panels that report at the same time, or a panel that reports while
+        a frame of ours goes out, damage each other on the line. The address
+        byte of the damaged frame then belongs to the other panel, and so does
+        its checksum. Such a frame must not be taken for a button of this
+        panel.
+        """
+        body = bytearray(frame[:-2])
+        for address in self.known_addresses:
+            body[1] = address
+            if calculate_crc8(bytes(body)) == frame[-2]:
+                return True
+        return False
 
     def build_led_frame(
         self,
@@ -135,14 +159,23 @@ class SymiProtocol(PanelProtocol):
         op_code = frame[11] if len(frame) > 11 else 0
 
         # Panels of different vendors disagree on the checksum, so a button
-        # event is accepted even when the checksum does not match.
+        # event is accepted even when the checksum does not match. A frame
+        # whose checksum fits another panel on the line was damaged on the
+        # line, and it belongs to that panel.
         lenient = (
             data_type in (DATA_TYPE_SET, DATA_TYPE_STATUS)
             and device_type in (DEVICE_TYPE_LIGHT, DEVICE_TYPE_SCENE)
             and op_code == LIGHT_OP_SINGLE
         )
-        if frame[-2] != calculate_crc8(frame[:-2]) and not lenient:
-            return []
+        if frame[-2] != calculate_crc8(frame[:-2]):
+            if not lenient or self._fits_another_panel(frame):
+                _LOGGER.debug(
+                    "The frame %s of panel %s was dropped, its checksum does "
+                    "not fit",
+                    frame.hex(" ").upper(),
+                    frame[1],
+                )
+                return []
 
         panel_id = frame[1]
         device_addr = frame[6]
