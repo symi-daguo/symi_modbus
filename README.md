@@ -163,8 +163,20 @@ by hand in the settings of the panel bus.
 
 A **button link** binds panel buttons to relays. The state is shared in both directions:
 
-- a panel button that is switched on drives the relays of the link,
+- a panel button that is switched on drives the relays of the link, and lights up its own
+  indicator at once,
 - a relay that changes lights up the panel buttons of the link.
+
+The link knows the kind of the relay it drives:
+
+| Mode | What the relay does | The indicator of the panel |
+|------|---------------------|-----------------------------|
+| **Switch** (default) | Holds its state, the state of the relay is the state of the light. | Follows the state of the relay. |
+| **Scene** | Only triggers a scene once, for example a scene of a smart home. | Answers the press and keeps its state, it is not switched off again by the relay falling back. |
+
+A scene has no lasting state, so following the relay would switch the light off again right
+away. The mode is chosen per link, so a relay that holds a state and one that only triggers a
+scene can be used next to each other.
 
 One button can be linked to several relays, and one relay can be linked to several buttons, a
 link holds both groups. The link only reacts to a change, a target that already shows the wanted
@@ -256,6 +268,14 @@ docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
   panel side with a burst of four hundred button presses.
 
 ## Changelog
+
+### 2.4.0
+
+- A **link knows whether it drives a switch or a scene**. A relay that only triggers a scene has
+  no lasting state, so the indicator light of the panel is not tied to it and is not switched off
+  again by the relay falling back. The mode is chosen per link, the default is the switch.
+- A press of a **panel button lights its own indicator right away**, so the panel answers the press
+  without waiting for the relay to report its state.
 
 ### 2.3.1
 

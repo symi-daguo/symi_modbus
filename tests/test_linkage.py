@@ -6,6 +6,7 @@ import asyncio
 import pytest
 
 from custom_components.symi_modbus import linkage as linkage_module
+from custom_components.symi_modbus.const import MODE_SCENE
 from custom_components.symi_modbus.linkage import LinkageGroup
 
 
@@ -93,9 +94,11 @@ async def test_a_panel_button_drives_the_relay() -> None:
 
     await _trigger(hass, group, "switch.panel", "on")
 
-    assert hass.services.calls == [
-        ("switch", "turn_on", {"entity_id": "switch.relay"})
-    ]
+    # The relay is driven and the button gets the frame for its own light.
+    assert {call[2]["entity_id"] for call in hass.services.calls} == {
+        "switch.relay",
+        "switch.panel",
+    }
 
 
 @pytest.mark.asyncio
@@ -134,6 +137,7 @@ async def test_one_button_drives_several_relays() -> None:
     assert {call[2]["entity_id"] for call in hass.services.calls} == {
         "switch.relay_a",
         "switch.relay_b",
+        "switch.panel",
     }
 
 
@@ -171,7 +175,9 @@ async def test_a_target_with_the_wanted_state_is_left_alone() -> None:
 
     await _trigger(hass, group, "switch.panel", "on")
 
-    assert hass.services.calls == []
+    # The relay already shows the wanted state, only the light of the button
+    # is written.
+    assert {call[2]["entity_id"] for call in hass.services.calls} == {"switch.panel"}
 
 
 @pytest.mark.asyncio
@@ -183,4 +189,51 @@ async def test_an_unknown_target_is_skipped() -> None:
 
     await _trigger(hass, group, "switch.panel", "on")
 
+    # The relay already shows the wanted state, only the light of the button
+    # is written.
+    assert {call[2]["entity_id"] for call in hass.services.calls} == {"switch.panel"}
+
+
+@pytest.mark.asyncio
+async def test_a_scene_link_does_not_follow_the_relay() -> None:
+    """A scene has no lasting state, so the light of the panel stays on.
+
+    A relay that only triggers a scene falls back to off right away. Following
+    that would switch the light of the panel off again at once.
+    """
+    panel_entity = "switch.symi_01_button_01"
+    relay_entity = "switch.serial_dev_ttys0_0a_line_01"
+    hass = FakeHass(
+        {panel_entity: FakeState("on"), relay_entity: FakeState("off")}
+    )
+
+    link = LinkageGroup(
+        hass, [panel_entity], [relay_entity], "test", mode=MODE_SCENE
+    )
+    await link.async_start()
+
+    # The relay falls back to off, the light of the panel keeps its state.
+    hass.states[relay_entity] = "off"
+    await _trigger(hass, link, relay_entity, "off")
     assert hass.services.calls == []
+
+
+@pytest.mark.asyncio
+async def test_a_scene_link_still_drives_the_relay() -> None:
+    """A press of the button still triggers the scene of the relay."""
+    panel_entity = "switch.symi_01_button_01"
+    relay_entity = "switch.serial_dev_ttys0_0a_line_01"
+    hass = FakeHass(
+        {panel_entity: FakeState("off"), relay_entity: FakeState("off")}
+    )
+
+    link = LinkageGroup(
+        hass, [panel_entity], [relay_entity], "test", mode=MODE_SCENE
+    )
+    await link.async_start()
+
+    hass.states[panel_entity] = "on"
+    await _trigger(hass, link, panel_entity, "on")
+    assert ("switch", "turn_on", {"entity_id": relay_entity}) in hass.services.calls
+    # The light of the button answers the press at once.
+    assert ("switch", "turn_on", {"entity_id": panel_entity}) in hass.services.calls

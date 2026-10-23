@@ -27,6 +27,7 @@ from .const import (
     CONF_LED_FRAME_TYPE,
     CONF_LED_OFF_CODE,
     CONF_LED_ON_CODE,
+    CONF_MODE,
     CONF_PANEL_ENTITIES,
     CONF_PANEL_IDS,
     CONF_PARITY,
@@ -36,6 +37,7 @@ from .const import (
     CONF_STOPBITS,
     DOMAIN,
     LED_FRAME_REPORT,
+    MODE_SWITCH,
     SERVICE_WRITE_COIL,
     SERVICE_WRITE_REGISTER,
     SUBENTRY_LINKAGE,
@@ -213,6 +215,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: SymiModbusConfigEntry) -
             [str(entity) for entity in subentry.data.get(CONF_PANEL_ENTITIES, [])],
             [str(entity) for entity in subentry.data.get(CONF_RELAY_ENTITIES, [])],
             title=subentry.title,
+            mode=str(subentry.data.get(CONF_MODE, MODE_SWITCH)),
         )
         await group.async_start()
         entry.runtime_data.linkages.append(group)

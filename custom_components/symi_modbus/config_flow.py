@@ -42,6 +42,7 @@ from .const import (
     CONF_LED_FRAME_TYPE,
     CONF_LED_OFF_CODE,
     CONF_LED_ON_CODE,
+    CONF_MODE,
     CONF_NAME,
     CONF_PANEL_ENTITIES,
     CONF_PANEL_IDS,
@@ -66,6 +67,8 @@ from .const import (
     LED_FRAME_SET,
     MAX_COIL_COUNT,
     MAX_PANEL_BUTTONS,
+    MODE_SCENE,
+    MODE_SWITCH,
     SERIAL_PORT_MANUAL_VALUE,
     SUBENTRY_LINKAGE,
     SUBENTRY_PANEL,
@@ -300,6 +303,15 @@ def _linkage_schema(hass, entry_id: str) -> vol.Schema:
         {
             vol.Required(CONF_PANEL_ENTITIES, default=list): _picker(panels),
             vol.Required(CONF_RELAY_ENTITIES, default=list): _picker(relays),
+            vol.Required(CONF_MODE, default=MODE_SWITCH): SelectSelector(
+                SelectSelectorConfig(
+                    options=[
+                        {"value": MODE_SWITCH, "label": "Switch"},
+                        {"value": MODE_SCENE, "label": "Scene"},
+                    ],
+                    mode=SelectSelectorMode.DROPDOWN,
+                )
+            ),
         }
     )
 
@@ -911,6 +923,7 @@ class LinkageSubentryFlow(ConfigSubentryFlow):
                     data={
                         CONF_PANEL_ENTITIES: list(user_input[CONF_PANEL_ENTITIES]),
                         CONF_RELAY_ENTITIES: list(user_input[CONF_RELAY_ENTITIES]),
+                        CONF_MODE: str(user_input.get(CONF_MODE, MODE_SWITCH)),
                     },
                 )
 
@@ -933,6 +946,7 @@ class LinkageSubentryFlow(ConfigSubentryFlow):
                     "data": {
                         CONF_PANEL_ENTITIES: list(user_input[CONF_PANEL_ENTITIES]),
                         CONF_RELAY_ENTITIES: list(user_input[CONF_RELAY_ENTITIES]),
+                        CONF_MODE: str(user_input.get(CONF_MODE, MODE_SWITCH)),
                     }
                 }
                 title = self._link_title(subentry, user_input)

@@ -7,6 +7,8 @@ from homeassistant.const import SERVICE_TURN_OFF, SERVICE_TURN_ON, STATE_OFF, ST
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.event import async_track_state_change_event
 
+from .const import MODE_SCENE, MODE_SWITCH
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -24,12 +26,14 @@ class LinkageGroup:
         panels: list[str],
         relays: list[str],
         title: str = "",
+        mode: str = MODE_SWITCH,
     ) -> None:
         """Initialize the group."""
         self._hass = hass
         self._panels = [entity_id for entity_id in panels if entity_id]
         self._relays = [entity_id for entity_id in relays if entity_id]
         self._title = title
+        self._mode = mode
         self._unsub = None
 
     @property
@@ -66,18 +70,28 @@ class LinkageGroup:
 
         source = event.data["entity_id"]
         if source in self._panels:
-            targets = self._relays
+            # A press of a button lights its own indicator right away and
+            # drives the relays of the link.
+            targets = [*self._relays, source]
         elif source in self._relays:
+            if self._mode == MODE_SCENE:
+                # A scene is a single action without a lasting state, so the
+                # indicator of the panel is not tied to it. Following the state
+                # would switch the light off again right away.
+                return
             targets = self._panels
         else:
             return
 
         desired = new_state.state
         for target in targets:
-            if target == source:
-                continue
             current = self._hass.states.get(target)
             if current is None:
+                continue
+            if target == source:
+                # The button itself always gets the frame, so the light of the
+                # panel answers the press at once.
+                self._hass.async_create_task(self._async_apply(target, desired))
                 continue
             if current.state == desired:
                 # The target already shows the wanted state, writing it again

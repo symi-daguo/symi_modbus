@@ -156,19 +156,21 @@
       "step": {
         "user": {
           "title": "Link a panel button to a relay",
-          "description": "Pick the buttons of the wall panels and the relays of the Modbus slaves. The state is shared in both directions: a button drives the relays, a relay lights up the buttons. The upper picker only shows the panel buttons, the lower one only the relays.",
+          "description": "Pick the buttons of the wall panels and the relays of the Modbus slaves. The state is shared in both directions: a button drives the relays, a relay lights up the buttons. The upper picker only shows the panel buttons, the lower one only the relays. In the switch mode the light of the panel follows the state of the relay. In the scene mode the relay only triggers a scene once, the light of the panel answers the press and is not switched off again by the relay falling back.",
           "data": {
             "panel_entities": "Panel buttons",
-            "relay_entities": "Modbus relays"
+            "relay_entities": "Modbus relays",
+            "mode": "Mode"
           }
         },
         "reconfigure": {
           "title": "Change a button link",
           "data": {
             "panel_entities": "Panel buttons",
-            "relay_entities": "Modbus relays"
+            "relay_entities": "Modbus relays",
+            "mode": "Mode"
           },
-          "description": "Pick the buttons of the wall panels and the relays of the Modbus slaves. The state is shared in both directions: a button drives the relays, a relay lights up the buttons. The upper picker only shows the panel buttons, the lower one only the relays."
+          "description": "Pick the buttons of the wall panels and the relays of the Modbus slaves. The state is shared in both directions: a button drives the relays, a relay lights up the buttons. The upper picker only shows the panel buttons, the lower one only the relays. In the switch mode the light of the panel follows the state of the relay. In the scene mode the relay only triggers a scene once, the light of the panel answers the press and is not switched off again by the relay falling back."
         }
       },
       "error": {
