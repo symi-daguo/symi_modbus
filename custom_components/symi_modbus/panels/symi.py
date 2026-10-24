@@ -222,6 +222,10 @@ class SymiProtocol(PanelProtocol):
                     # report the state of the panel.
                     is_state=data_type != DATA_TYPE_SET,
                     is_state_code=op_info[0] in STATE_CODES,
+                    # The device type 07 is the scene of the protocol: such a
+                    # key is a trigger and the state of the light flips on
+                    # every press.
+                    is_toggle=device_type == DEVICE_TYPE_SCENE,
                 )
             ]
 

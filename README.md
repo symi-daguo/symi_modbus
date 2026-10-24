@@ -194,6 +194,8 @@ docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
   panel is the answer to the light that was written, and the state follows the press.
 - A **scene takes the state the press of the button gives it** and not always the state that is
   on. The relay of a scene was never switched off that way.
+- The **device type 07 is the scene of the protocol.** A key that is reported with it is a trigger
+  and the state of the light flips on every press.
 
 ### 2.6.7
 

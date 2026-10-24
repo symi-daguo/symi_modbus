@@ -114,6 +114,31 @@ class TestSymiProtocol:
         # The light of the key is written with the address the panel used.
         assert events[0].channel == 0x11
 
+    def test_a_scene_of_the_protocol_is_a_trigger(self) -> None:
+        """The device type 07 is the scene of the protocol.
+
+        The frame was captured on a real bus. A key of a scene is a trigger:
+        the state of the light flips on every press, the panel does not tell
+        which state the key goes to.
+        """
+        protocol = symi.SymiProtocol()
+        events = protocol.parse_frames(
+            bytes.fromhex("7E 01 03 0F 07 00 02 11 00 00 00 00 01 8B 7D")
+        )
+        assert len(events) == 1
+        # The number of the key is in the lower bits of the channel.
+        assert events[0].button == 1
+        assert events[0].is_toggle is True
+
+    def test_a_key_of_a_light_is_not_a_trigger(self) -> None:
+        """The device type 01 is the light of the protocol, it tells a state."""
+        protocol = symi.SymiProtocol()
+        events = protocol.parse_frames(
+            bytes.fromhex("7E 01 03 0F 01 00 01 01 00 00 00 00 01 8B 7D")
+        )
+        assert len(events) == 1
+        assert events[0].is_toggle is False
+
     def test_an_action_is_not_the_code_of_a_state(self) -> None:
         """Only the values that are a state are the code of a state.
 
