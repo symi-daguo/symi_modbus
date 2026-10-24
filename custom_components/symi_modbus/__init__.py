@@ -14,6 +14,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 import voluptuous as vol
 
+from .card_order import _async_order_cards
 from .const import (
     ATTR_ADDRESS,
     ATTR_HUB,
@@ -203,6 +204,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: SymiModbusConfigEntry) -
 
     entry.runtime_data = SymiModbusRuntimeData(hub=hub, panels=panels)
     _LOGGER.debug("Symi Modbus forwarding platforms for %s", entry.entry_id)
+
+    _async_order_cards(hass, entry)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     _LOGGER.debug("Symi Modbus platforms ready for %s", entry.entry_id)

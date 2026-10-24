@@ -189,7 +189,9 @@ docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
   not answer it and the light stayed dark, and the answer of a panel could be taken for the press of
   a button, so the buttons of the panels on the line followed each other.
 - The **cards of the configuration stand in the order a person expects**: the slaves of the line
-  first, then the panel buses, then the links of the buttons, in the order of the relay they drive.
+  first, then the panel buses, then the links of the buttons, in the order of the relay they
+  drive. The cards are shown in the order of their titles, so the title of every card carries the
+  place it has, `01` for the first slave, `02` for the second one and so on.
 
 ### 2.6.6
 
