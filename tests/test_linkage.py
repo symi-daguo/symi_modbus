@@ -77,6 +77,12 @@ def _no_tracking(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+async def _start(hass: FakeHass, group: LinkageGroup) -> None:
+    """Start the link and forget what it did while it started."""
+    await group.async_start()
+    hass.services.calls.clear()
+
+
 async def _trigger(hass: FakeHass, group: LinkageGroup, entity_id: str, state: str) -> None:
     """Fire a state change and run the work it schedules."""
     group._async_state_changed(FakeEvent(entity_id, state))
@@ -108,7 +114,7 @@ async def test_the_relay_lights_up_the_panel_button() -> None:
         {"switch.panel": FakeState("off"), "switch.relay": FakeState("on")}
     )
     group = LinkageGroup(hass, ["switch.panel"], ["switch.relay"], "test")
-    await group.async_start()
+    await _start(hass, group)
 
     await _trigger(hass, group, "switch.relay", "on")
 
@@ -210,7 +216,7 @@ async def test_a_scene_link_does_not_follow_the_relay() -> None:
     link = LinkageGroup(
         hass, [panel_entity], [relay_entity], "test", mode=MODE_SCENE
     )
-    await link.async_start()
+    await _start(hass, link)
 
     # The relay falls back to off, the light of the panel keeps its state.
     hass.states[relay_entity] = "off"
@@ -250,7 +256,7 @@ async def test_the_light_of_a_panel_is_written_again_when_the_relay_changes() ->
         {"switch.panel": FakeState("on"), "switch.relay": FakeState("off")}
     )
     group = LinkageGroup(hass, ["switch.panel"], ["switch.relay"], "test")
-    await group.async_start()
+    await _start(hass, group)
 
     hass.states["switch.relay"] = "on"
     await _trigger(hass, group, "switch.relay", "on")
@@ -298,7 +304,29 @@ async def test_the_light_of_a_scene_is_not_switched_off_by_the_relay() -> None:
     link = LinkageGroup(
         hass, [panel_entity], [relay_entity], "test", mode=MODE_SCENE
     )
-    await link.async_start()
+    await _start(hass, link)
 
     await _trigger(hass, link, relay_entity, "off")
     assert hass.services.calls == []
+
+@pytest.mark.asyncio
+async def test_a_button_gets_the_state_of_the_relay_when_the_link_starts() -> None:
+    """The state of the relay is pushed to the button when the link starts.
+
+    A button of a panel starts without a state, the relay knows what it does.
+    The state of the relay is pushed to the button when the link starts, so
+    the light of the panel shows what the relay does and a press of the button
+    flips the state that is really there.
+    """
+    panel_entity = "switch.symi_01_button_01"
+    relay_entity = "switch.serial_dev_ttys0_0a_line_01"
+    hass = FakeHass(
+        {panel_entity: FakeState("off"), relay_entity: FakeState("on")}
+    )
+
+    link = LinkageGroup(hass, [panel_entity], [relay_entity], "test")
+    await link.async_start()
+
+    assert hass.services.calls == [
+        ("switch", "turn_on", {"entity_id": panel_entity})
+    ]

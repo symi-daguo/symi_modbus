@@ -54,6 +54,25 @@ class LinkageGroup:
         self._unsub = async_track_state_change_event(
             self._hass, entity_ids, self._async_state_changed
         )
+        await self._async_sync_start()
+
+    async def _async_sync_start(self) -> None:
+        """Give the buttons the state of the relays they drive.
+
+        A button of a panel starts without a state, the relay knows what it
+        does. The state of the relay is pushed to the button when the link
+        starts, so the light of the panel shows what the relay does and a
+        press of the button flips the state that is really there.
+        """
+        for relay in self._relays:
+            state = self._hass.states.get(relay)
+            if state is None or state.state not in (STATE_ON, STATE_OFF):
+                continue
+            for panel in self._panels:
+                current = self._hass.states.get(panel)
+                if current is not None and current.state == state.state:
+                    continue
+                await self._async_apply(panel, state.state)
 
     async def async_stop(self) -> None:
         """Stop watching the entities of this group."""

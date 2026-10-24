@@ -196,6 +196,9 @@ docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
   on. The relay of a scene was never switched off that way.
 - The **device type 07 is the scene of the protocol.** A key that is reported with it is a trigger
   and the state of the light flips on every press.
+- A **button of a panel takes the state of the relay it drives** when the link starts. The button
+  started without a state, and the state of the relay never changed again, so the button and the
+  relay did not agree and the light of the panel showed the wrong state.
 
 ### 2.6.7
 
