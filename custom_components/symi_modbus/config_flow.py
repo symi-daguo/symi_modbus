@@ -75,7 +75,6 @@ from .const import (
     LED_FRAME_REPORT,
     LED_FRAME_SET,
     MAX_COIL_COUNT,
-    MAX_PANEL_BUTTONS,
     MODE_SCENE,
     MODE_SWITCH,
     SECTION_ADVANCED,
@@ -86,6 +85,7 @@ from .const import (
 )
 from .connection import ModbusConnection
 from .frames import FUNCTION_READ_COILS, build_read_request
+from .panels import panel_keys
 from .panels.connection import serial_port_holders
 
 _LOGGER = logging.getLogger(__name__)
@@ -183,9 +183,6 @@ PANEL_FIELDS = {
     ),
     vol.Required("panel_count", default=1): NumberSelector(
         NumberSelectorConfig(min=1, max=64, mode=NumberSelectorMode.BOX)
-    ),
-    vol.Optional(CONF_BUTTONS, default=MAX_PANEL_BUTTONS): NumberSelector(
-        NumberSelectorConfig(min=1, max=MAX_PANEL_BUTTONS, mode=NumberSelectorMode.BOX)
     ),
     # The settings of the indicator light are only needed when the light of a
     # panel does not behave, so they are folded away.
@@ -928,6 +925,16 @@ class PanelSubentryFlow(ConfigSubentryFlow):
                 "",
             )
 
+        # The number of keys of a panel comes from the protocol of its brand.
+        # A panel has eight keys, a key that drives a scene is the same key and
+        # the backlight of the panel is no key at all.
+        suggested = dict(suggested)
+        keys = panel_keys(suggested.get(CONF_BRAND, BRAND_SYMI))
+        if CONF_BUTTONS in suggested:
+            suggested[CONF_BUTTONS] = panel_keys(
+                suggested.get(CONF_BRAND, BRAND_SYMI), suggested[CONF_BUTTONS]
+            )
+
         schema = vol.Schema(
             {
                 # The picker takes a port that was detected and a path that was
@@ -942,6 +949,9 @@ class PanelSubentryFlow(ConfigSubentryFlow):
                         mode=SelectSelectorMode.DROPDOWN,
                         custom_value=True,
                     )
+                ),
+                vol.Optional(CONF_BUTTONS, default=keys): NumberSelector(
+                    NumberSelectorConfig(min=1, max=keys, mode=NumberSelectorMode.BOX)
                 ),
                 **PANEL_FIELDS,
             }

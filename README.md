@@ -13,7 +13,7 @@ wall panel buses and the links between a panel button and a relay.
 
 | | |
 |---|---|
-| Version | **2.6.4** |
+| Version | **2.6.5** |
 | Home Assistant | **2025.3.0** or newer |
 | Dependencies | `pyserial`, `pyserial-asyncio-fast` |
 
@@ -73,22 +73,33 @@ on. A name that was changed by hand is kept.
 | Slave address | Slave | The unit ID of the device, 10 is `0x0A`. |
 | First coil, coil count | Slave | The coils the device has. A 32 channel module has 32. |
 | Panel address, panel count | Panel bus | The addresses of the panels on that line. |
-| Buttons per panel | Panel bus | How many buttons a panel of that brand has. |
+| Buttons per panel | Panel bus | How many keys a panel of that brand has, eight for Symi and LF. |
 | Advanced settings | Panel bus | The frame of the indicator light and the codes of the light. Only needed when the light does not behave. |
 | Mode | Button link | **Switch** (default) keeps the state of the relay, **Scene** only triggers it once. |
 
+### The keys of a panel
+
+A panel has the keys **one to eight**, the protocol document of the vendor says so. The number of
+keys of the panel bus is taken from the protocol of its brand, so the entities of the bus are
+exactly the keys of the panel and no more.
+
+The panel numbers a key with the channel of the frame. A key that drives a scene is reported with
+the channel `0x1N`, where `N` is the number of the key: the upper bits say that the key is used for
+a scene, the lower bits are the number of the key. Such a key is the same key as in the switch
+mode, it does not become a key of its own. The channel `0x0F` is the backlight of the panel and
+not a key at all.
+
 ### The indicator light of a panel
 
-A panel uses a code of its own for the state it reports, the protocol document only shows `0x01`
-for on and `0x00` for off. The integration therefore learns the codes of every panel from the
-frames the panel sends and keeps them with the entity, so the light is driven with the codes the
-panel understands.
+A panel reports the state of a key with `0x01` for on and `0x00` for off, the protocol document
+says so. A panel that uses values of its own is learned: the integration keeps the values with
+the entity, so the light is driven with the values the panel understands.
 
 The log shows what was learned:
 
 ```
-Panel 1 button 1 uses the code 17 for on
-Panel 1 button 1 uses the code 16 for off
+Panel 1 button 1 uses the code 1 for on
+Panel 1 button 1 uses the code 0 for off
 ```
 
 Two presses of a button, once for on and once for off, teach the panel both of its codes. When a
@@ -164,6 +175,18 @@ docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
 
 ## Changelog
 
+### 2.6.5
+
+- **A panel has the keys one to eight, the protocol of the vendor says so.** The number of keys of
+  a panel bus is taken from the protocol of its brand now, so the entities of the bus are exactly
+  the keys of the panel and no more. The limit of 32 keys of version 2.6.1 was wrong and is gone.
+- **A key that drives a scene is the same key.** Such a key is reported with the channel `0x1N`,
+  where `N` is the number of the key: the upper bits of the channel say that the key is used for
+  a scene, they are not a key number. The channel `0x11` was taken for the key 17 before, so keys
+  that the panel does not have were in the entity list and in the links of the buttons.
+- The channel `0x0F` is the backlight of the panel and not a key, it does not show up as a button
+  any more.
+
 ### 2.6.4
 
 - The **state of a press is read the way the brand of the panel reads it**, and not by flipping the
@@ -198,9 +221,8 @@ docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
 
 - A **scene is triggered with every press** of its button. A button of a panel is a toggle, so
   following its state switched the relay off on the second press and the scene did not fire.
-- A panel can have **up to 32 buttons** now. A panel numbers its keys with a channel and the keys
-  that drive a scene are numbered higher than the ones that drive a light, so a panel can report a
-  channel that is well above eight.
+- A panel can have **up to 32 buttons** now. The number of keys was thought to be higher than
+  eight, which turned out to be wrong.
 - A panel that **reports a button without an entity** says so in the log and names the number of
   buttons the panel bus has to be set to.
 

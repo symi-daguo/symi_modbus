@@ -88,6 +88,7 @@ from .const import (
     SUBENTRY_PANEL,
     SUBENTRY_SLAVE,
 )
+from .panels import panel_keys
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -99,7 +100,6 @@ DEFAULT_BAUDRATE: Final = 9600
 DEFAULT_BYTESIZE: Final = 8
 DEFAULT_PARITY: Final = "N"
 DEFAULT_STOPBITS: Final = 1
-DEFAULT_BUTTONS: Final = 8
 
 
 class ConfigImportError(Exception):
@@ -193,7 +193,9 @@ def build_configuration(
             "panels": [
                 int(panel) for panel in subentry.data.get(CONF_PANEL_IDS, [])
             ],
-            "buttons": int(subentry.data.get(CONF_BUTTONS, DEFAULT_BUTTONS)),
+            "buttons": panel_keys(
+                str(subentry.data[CONF_BRAND]), subentry.data.get(CONF_BUTTONS)
+            ),
             "led_frame": str(
                 subentry.data.get(CONF_LED_FRAME_TYPE, LED_FRAME_REPORT)
             ),
@@ -462,15 +464,17 @@ def _slave_data(item: dict[str, Any]) -> dict[str, Any]:
 
 def _panel_data(item: dict[str, Any]) -> dict[str, Any]:
     """Return the data of a panel bus of the configuration."""
+    brand = str(item["brand"])
     data: dict[str, Any] = {
         CONF_PORT: str(item["port"]),
-        CONF_BRAND: str(item["brand"]),
+        CONF_BRAND: brand,
         CONF_BAUDRATE: int(item.get("baudrate", DEFAULT_BAUDRATE)),
         CONF_BYTESIZE: int(item.get("bytesize", DEFAULT_BYTESIZE)),
         CONF_PARITY: str(item.get("parity", DEFAULT_PARITY)),
         CONF_STOPBITS: int(item.get("stopbits", DEFAULT_STOPBITS)),
         CONF_PANEL_IDS: [int(panel) for panel in item.get("panels", [])],
-        CONF_BUTTONS: int(item.get("buttons", DEFAULT_BUTTONS)),
+        # A panel has as many keys as its protocol says, never more.
+        CONF_BUTTONS: panel_keys(brand, item.get("buttons")),
         CONF_LED_FRAME_TYPE: str(item.get("led_frame", LED_FRAME_REPORT)),
     }
     if item.get("led_on_code") is not None:

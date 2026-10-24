@@ -141,21 +141,22 @@ def test_the_panel_of_a_shared_port_is_found(brand: str) -> None:
     assert manager.panel_ids("bus2") == []
 
 
-def test_a_panel_can_have_more_than_eight_buttons() -> None:
-    """A panel numbers its keys with a channel, the scenes are numbered higher."""
-    from custom_components.symi_modbus.const import MAX_PANEL_BUTTONS
+def test_a_panel_has_the_keys_its_protocol_says() -> None:
+    """The number of keys of a panel comes from the protocol of its brand."""
+    from custom_components.symi_modbus.panels import PROTOCOLS
 
-    assert MAX_PANEL_BUTTONS >= 32
+    for protocol in PROTOCOLS.values():
+        assert protocol.default_buttons == 8
 
 
-def test_a_button_without_an_entity_is_reported(caplog) -> None:
-    """A panel that reports a button without an entity is reported."""
+def test_a_key_without_an_entity_is_reported(caplog) -> None:
+    """A panel that reports a key without an entity is reported."""
     manager = _manager()
 
     with caplog.at_level(logging.WARNING):
         manager._handle_event(
-            "bus1", ButtonEvent(panel_id=1, button=17, state=True)
+            "bus1", ButtonEvent(panel_id=1, button=9, state=True)
         )
 
-    assert "reported the button 17" in caplog.text
-    assert "17 or more" in caplog.text
+    assert "reported the key 9" in caplog.text
+    assert "9 or more" in caplog.text

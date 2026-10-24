@@ -83,6 +83,21 @@ def test_a_renamed_panel_bus_keeps_its_title() -> None:
     assert PanelSubentryFlow._panel_title(default, data) == "SYMI /dev/ttyS1"
 
 
+def test_the_number_of_keys_of_a_panel_comes_from_the_protocol() -> None:
+    """A panel has as many keys as the protocol of its brand says.
+
+    The scene keys of a panel are numbered higher and are no keys of the
+    panel, so the number of keys is never more than the protocol says.
+    """
+    from custom_components.symi_modbus.panels import panel_keys
+
+    assert panel_keys("symi") == 8
+    assert panel_keys("lf") == 8
+    # A number that is larger than the protocol allows is cut down.
+    assert panel_keys("symi", 18) == 8
+    assert panel_keys("symi", 4) == 4
+
+
 def test_a_renamed_link_keeps_its_title() -> None:
     """A link that was renamed keeps its name when it is changed."""
     flow = LinkageSubentryFlow.__new__(LinkageSubentryFlow)

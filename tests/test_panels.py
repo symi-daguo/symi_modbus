@@ -83,16 +83,41 @@ class TestSymiProtocol:
         assert events[0].state is True
 
     def test_the_backlight_channel_is_not_a_button(self) -> None:
-        """Channel 0x0F is the backlight and is reported as button 15."""
+        """Channel 0x0F is the backlight of the panel and not a key."""
         protocol = symi.SymiProtocol()
         body = bytearray(
             symi.SymiProtocol().build_led_frame(0x02, 0x0F, True)
         )
         body[7] = 0x0F
         body[13] = symi.calculate_crc8(bytes(body[:-2]))
-        events = protocol.parse_frames(bytes(body))
+        assert protocol.parse_frames(bytes(body)) == []
+
+    def test_a_key_that_is_used_for_a_scene_is_the_same_key(self) -> None:
+        """A panel reports a key that drives a scene with the channel 0x1N.
+
+        The frame was captured on a real bus. The upper bits of the channel
+        say that the key is used for a scene, the number of the key is in the
+        lower bits. The key is the same key as in the switch mode, so it must
+        not become a key of its own.
+        """
+        protocol = symi.SymiProtocol()
+        events = protocol.parse_frames(
+            bytes.fromhex("7E 01 03 0F 01 00 01 11 00 00 00 00 01 8B 7D")
+        )
         assert len(events) == 1
-        assert events[0].button == 15
+        assert events[0].button == 1
+        # The light of the key is written with the address the panel used.
+        assert events[0].channel == 0x11
+
+    def test_every_key_of_a_panel_has_its_own_number(self) -> None:
+        """The keys of a panel are the channels one to eight."""
+        protocol = symi.SymiProtocol()
+        for key in range(1, 9):
+            body = bytearray(protocol.build_led_frame(0x01, key, True))
+            body[7] = key
+            body[13] = symi.calculate_crc8(bytes(body[:-2]))
+            events = protocol.parse_frames(bytes(body))
+            assert events[0].button == key
 
     def test_a_frame_split_over_two_reads_is_still_parsed(self) -> None:
         """A frame that arrives in pieces is kept until it is complete."""

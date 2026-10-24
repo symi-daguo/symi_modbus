@@ -95,11 +95,6 @@ LED_FRAME_SET: Final = "set"
 # something does not behave.
 SECTION_ADVANCED: Final = "advanced"
 
-# Number of buttons a panel has. A panel numbers its keys with a channel, and
-# the keys that drive a scene are numbered higher than the ones that drive a
-# light, so a panel can report a channel that is well above eight.
-MAX_PANEL_BUTTONS: Final = 32
-
 # Service call attributes
 ATTR_ADDRESS: Final = "address"
 ATTR_HUB: Final = "hub"

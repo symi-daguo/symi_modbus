@@ -331,20 +331,19 @@ class PanelManager:
                 _LOGGER.exception("Panel button listener failed")
 
     def _warn_about_missing_entity(self, subentry_id: str, event: ButtonEvent) -> None:
-        """Tell in the log when a panel reports a button that has no entity.
+        """Tell in the log when a panel reports a key that has no entity.
 
-        A panel numbers its keys with a channel and the keys that drive a scene
-        are numbered higher than the ones that drive a light. When such a key
-        is pressed and the panel bus has no entity for it, the key cannot be
-        linked to a relay, so the number of buttons has to be raised.
+        A panel has the keys one to eight. When the panel bus has fewer keys
+        than the key that was pressed, that key has no entity and cannot be
+        linked to a relay, so the number of keys has to be raised.
         """
         key = (subentry_id, event.panel_id, event.button)
         if key in self._buttons or key in self._warned_buttons:
             return
         self._warned_buttons.add(key)
         _LOGGER.warning(
-            "The panel %s reported the button %s, it has no entity. Set the "
-            "number of buttons of the panel bus to %s or more, then the key "
+            "The panel %s reported the key %s, it has no entity. Set the "
+            "number of keys of the panel bus to %s or more, then the key "
             "can be linked to a relay",
             event.panel_id,
             event.button,

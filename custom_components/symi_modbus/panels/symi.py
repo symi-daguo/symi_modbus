@@ -33,8 +33,13 @@ LIGHT_OP_MULTI = 0x05
 MIN_FRAME_LEN = 15
 MAX_FRAME_LEN = 64
 
-# The channel of the backlight, it is not a regular button.
-BACKLIGHT_BUTTON = 15
+# The channel carries the number of the key. The upper bits are flags: a
+# channel of 0x1N means the key N is used for a scene, the panel sends that
+# when such a key is pressed. Only the lower bits are the number of the key.
+KEY_MASK = 0x0F
+
+# The channel of the backlight of the panel. It is not a key of the panel.
+BACKLIGHT_CHANNEL = 0x0F
 
 
 def calculate_crc8(body: bytes) -> int:
@@ -190,11 +195,15 @@ class SymiProtocol(PanelProtocol):
         if op_code == LIGHT_OP_SINGLE:
             if not op_info:
                 return []
-            button = BACKLIGHT_BUTTON if channel == BACKLIGHT_BUTTON else channel
+            if channel == BACKLIGHT_CHANNEL:
+                # The backlight of the panel is not a key of the panel.
+                return []
             return [
                 ButtonEvent(
                     panel_id=panel_id,
-                    button=button,
+                    # A key that is used for a scene is reported with the
+                    # channel 0x1N, the number of the key is in the lower bits.
+                    button=channel & KEY_MASK,
                     state=op_info[0] != 0,
                     device_addr=device_addr,
                     channel=channel,
