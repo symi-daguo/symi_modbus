@@ -161,6 +161,39 @@ def test_a_code_that_was_set_by_hand_tells_the_state() -> None:
     assert button._state_of(16) is False
 
 
+def test_the_light_is_driven_with_the_code_of_the_panel() -> None:
+    """The light is driven with the code the panel uses for that state."""
+    button = _button()
+    button._codes = {"on": 1, "off": 0}
+
+    assert button._code_for(True) == 1
+    assert button._code_for(False) == 0
+
+
+def test_a_code_that_cannot_be_told_apart_is_not_used() -> None:
+    """Two codes that are the same tell nothing, so the standard is used.
+
+    The codes that were learned before were written as a zero for the state
+    that was never learned. A zero is the code a panel uses for the state
+    that is off, so the two codes could not be told apart and the light was
+    driven with the zero even when it was to be turned on.
+    """
+    button = _button()
+    button._codes = {"on": 0, "off": 0}
+
+    assert button._code_for(True) == 1
+    assert button._code_for(False) == 0
+
+
+def test_a_state_whose_code_was_never_learned_uses_the_standard() -> None:
+    """A state without a learned code is driven with the code of the protocol."""
+    button = _button()
+    button._codes = {"off": 0}
+
+    assert button._code_for(True) == 1
+    assert button._code_for(False) == 0
+
+
 def test_two_codes_that_were_set_by_hand_are_not_used() -> None:
     """Two codes that are the same tell nothing, so neither of them is used."""
     button = _button()

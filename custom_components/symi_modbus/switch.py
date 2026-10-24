@@ -52,10 +52,19 @@ def _codes_from_options(options: dict[str, Any]) -> dict[str, int]:
 
 
 def _options_with_codes(options: dict[str, Any], codes: dict[str, int]) -> dict[str, Any]:
-    """Return the options of the entity with the learned codes."""
+    """Return the options of the entity with the learned codes.
+
+    Only the codes that were learned are kept. A code that was not learned
+    must not be written as a zero, the panel would read the zero as the code
+    of the other state.
+    """
     own = dict(options.get(DOMAIN) or {})
-    own["on_code"] = codes.get("on", 0)
-    own["off_code"] = codes.get("off", 0)
+    own.pop("on_code", None)
+    own.pop("off_code", None)
+    if "on" in codes:
+        own["on_code"] = codes["on"]
+    if "off" in codes:
+        own["off_code"] = codes["off"]
     return own
 
 
@@ -113,6 +122,39 @@ async def async_setup_entry(
         async_add_entities(entities, config_subentry_id=subentry.subentry_id)
 
     _async_remove_stale(hass, config_entry, expected)
+    _async_reset_stale_names(hass, config_entry.entry_id)
+
+
+def _stale_names(entries: list[Any]) -> list[str]:
+    """Return the entities that carry a name of an earlier version.
+
+    An entity that an earlier version of the integration created has a name
+    of its own in the registry. The name of such an entity is then not the
+    name of the device and the entity, and the entities do not stand in the
+    order a person expects: the coils of the slaves first, then the buttons
+    of the panels. A name that the user gave stays as it is.
+    """
+    return [
+        entry.entity_id
+        for entry in entries
+        if entry.name is not None
+        and entry.original_name is not None
+        and entry.name == entry.original_name
+    ]
+
+
+def _async_reset_stale_names(hass: HomeAssistant, entry_id: str) -> None:
+    """Give the entities that carry a name of their own the name of the device."""
+    registry = er.async_get(hass)
+    for entity_id in _stale_names(
+        er.async_entries_for_config_entry(registry, entry_id)
+    ):
+        _LOGGER.debug(
+            "The entity %s carries the name of an earlier version, it is reset "
+            "to the name of the device and the entity",
+            entity_id,
+        )
+        registry.async_update_entity(entity_id, name=None)
 
 
 def _stale_entries(entries: list[Any], prefix: str, expected: set[str]) -> list[Any]:
@@ -415,13 +457,26 @@ class PanelButtonSwitch(SwitchEntity):
         )
         self._async_save_codes()
 
+    def _learned_code(self, state: bool) -> int | None:
+        """Return the learned code for this state, None when it cannot be used.
+
+        Two codes that are the same cannot be told apart, so neither of them
+        is used. A state whose code was never learned has no code either.
+        """
+        on = self._codes.get("on")
+        off = self._codes.get("off")
+        if on is not None and off is not None and on == off:
+            return None
+        return on if state else off
+
     def _code_for(self, state: bool) -> int:
         """Return the code the panel uses for this state."""
-        manual = self._panels.manual_codes(self._subentry_id)
-        code = manual[0] if state else manual[1]
-        if code is not None:
-            return code
-        learned = self._codes.get("on" if state else "off")
+        manual_on, manual_off = self._panels.manual_codes(self._subentry_id)
+        if manual_on != manual_off:
+            code = manual_on if state else manual_off
+            if code is not None:
+                return code
+        learned = self._learned_code(state)
         if learned is not None:
             return learned
         return 1 if state else 0
@@ -455,7 +510,9 @@ class PanelButtonSwitch(SwitchEntity):
                 return
         else:
             state, is_new = self._press_state(event)
-            if is_new:
+            if is_new and event.is_state_code:
+                # A code that is not the code of a state, a double click for
+                # example, is not learned.
                 self._async_learn(event.code, state)
 
         if state == self._is_on:

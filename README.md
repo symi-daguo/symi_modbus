@@ -13,7 +13,7 @@ wall panel buses and the links between a panel button and a relay.
 
 | | |
 |---|---|
-| Version | **2.6.5** |
+| Version | **2.6.6** |
 | Home Assistant | **2025.3.0** or newer |
 | Dependencies | `pyserial`, `pyserial-asyncio-fast` |
 
@@ -88,6 +88,13 @@ the channel `0x1N`, where `N` is the number of the key: the upper bits say that 
 a scene, the lower bits are the number of the key. Such a key is the same key as in the switch
 mode, it does not become a key of its own. The channel `0x0F` is the backlight of the panel and
 not a key at all.
+
+### The order of the entities
+
+The entities stand in the order a person expects: the coils of the slaves first, from the first
+slave to the last, then the buttons of the panels, from the first panel to the last. The pickers of
+a button link show the entities in that order too, so it is easy to see which coils have no button
+yet.
 
 ### The indicator light of a panel
 
@@ -174,6 +181,20 @@ docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
 - `scripts/generate_brand.py` regenerates the brand images from `assets/icon_source.png`.
 
 ## Changelog
+
+### 2.6.6
+
+- The **light of a key is driven with the code of the panel** again. A code that was never learned
+  was written as a zero, and the zero is the code a panel uses for the state that is off. A button
+  whose code for "on" was never learned was therefore driven with the code for off, and the light
+  stayed dark when it was to be turned on.
+- A **double click and a long press are not the code of a state**. The operation information of the
+  protocol says what the key did, only a single click is a state. The other values were learned as
+  the code for "on" and were written to the light.
+- The **entities stand in the order a person expects**: the coils of the slaves first, from the
+  first slave to the last, then the buttons of the panels, from the first panel to the last. An
+  entity that an earlier version created had a name of its own in the registry, and such a name is
+  reset now. The pickers of a button link show the entities in that order as well.
 
 ### 2.6.5
 

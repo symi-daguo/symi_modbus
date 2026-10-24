@@ -35,3 +35,21 @@ def test_an_entity_without_codes_has_none() -> None:
     """An entity that never learned a code has none."""
     assert _codes_from_options({}) == {}
     assert _codes_from_options({"conversation": {"should_expose": True}}) == {}
+
+
+def test_a_code_that_was_not_learned_is_not_written() -> None:
+    """A code that was not learned is not kept as a zero.
+
+    The zero is a code a panel uses for the state that is off. Writing it for
+    the state that is on would drive the light with the wrong code.
+    """
+    options = _options_with_codes({}, {"off": 0})
+
+    assert options == {"off_code": 0}
+
+
+def test_a_code_that_was_wrong_is_dropped() -> None:
+    """The codes that were learned before are replaced by the ones now."""
+    options = _options_with_codes({"on_code": 0, "off_code": 0}, {"on": 1})
+
+    assert options == {"on_code": 1}

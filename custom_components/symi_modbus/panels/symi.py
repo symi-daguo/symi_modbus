@@ -30,6 +30,12 @@ DEVICE_TYPE_SCENE = 0x07
 LIGHT_OP_SINGLE = 0x00
 LIGHT_OP_MULTI = 0x05
 
+# The operation information of a press says what the key did. Only these two
+# values are a state of the light, the other values are an action: a double
+# click, a triple click, a long press. Such a value is not the code of a
+# state and must not be learned as one.
+STATE_CODES = (0x00, 0x01)
+
 MIN_FRAME_LEN = 15
 MAX_FRAME_LEN = 64
 
@@ -211,6 +217,7 @@ class SymiProtocol(PanelProtocol):
                     # A set frame is the press of a button, the other frames
                     # report the state of the panel.
                     is_state=data_type != DATA_TYPE_SET,
+                    is_state_code=op_info[0] in STATE_CODES,
                 )
             ]
 

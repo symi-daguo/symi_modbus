@@ -41,6 +41,14 @@ class ButtonEvent:
     press then only says that the button was used.
     """
 
+    is_state_code: bool = False
+    """True when the code is the code of a state.
+
+    A panel can report an action that is not a state, a double click for
+    example. Such a code is not the code of a state, it is not learned and it
+    is not written to the light.
+    """
+
 
 class PanelProtocol(ABC):
     """Interface of a panel brand protocol.

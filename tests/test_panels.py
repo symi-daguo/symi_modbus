@@ -109,6 +109,26 @@ class TestSymiProtocol:
         # The light of the key is written with the address the panel used.
         assert events[0].channel == 0x11
 
+    def test_an_action_is_not_the_code_of_a_state(self) -> None:
+        """Only the values that are a state are the code of a state.
+
+        The operation information says what the key did. A double click is
+        an action and not a state, so its value is not the code of a state.
+        """
+        protocol = symi.SymiProtocol()
+
+        def event_of(value: int):
+            body = bytearray(protocol.build_led_frame(0x01, 1, True))
+            body[12] = value
+            body[13] = symi.calculate_crc8(bytes(body[:-2]))
+            return protocol.parse_frames(bytes(body))[0]
+
+        assert event_of(0x00).is_state_code is True
+        assert event_of(0x01).is_state_code is True
+        # A double click and a long press are actions.
+        assert event_of(0x02).is_state_code is False
+        assert event_of(0x0C).is_state_code is False
+
     def test_every_key_of_a_panel_has_its_own_number(self) -> None:
         """The keys of a panel are the channels one to eight."""
         protocol = symi.SymiProtocol()
