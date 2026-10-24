@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from custom_components.symi_modbus.const import LED_FRAME_SET
+from custom_components.symi_modbus.const import LED_FRAME_REPORT, LED_FRAME_SET
 from custom_components.symi_modbus.panels import clowire, lf, symi
 
 
@@ -21,21 +21,26 @@ class TestSymiProtocol:
     """The Symi protocol uses its own framed dialect."""
 
     def test_the_light_frame_has_the_documented_layout(self) -> None:
-        """The frame is a report frame, the protocol document asks for that."""
+        """The frame is the set frame the protocol document asks for.
+
+        The document drives the light of a panel with the set frame and the
+        panel answers with a report frame. The frame is the same one the
+        Node-RED implementation builds.
+        """
         protocol = symi.SymiProtocol()
         frame = protocol.build_led_frame(0x02, 3, True)
-        # The same frame the Node-RED implementation builds.
-        assert _hex(frame) == "7E 02 04 0F 01 00 01 03 00 00 00 00 01 FD 7D"
+        # The frame of the protocol document.
+        assert _hex(frame) == "7E 02 03 0F 01 00 01 03 00 00 00 00 01 A0 7D"
         assert frame[0] == symi.FRAME_HEADER
         assert frame[-1] == symi.FRAME_TAIL
-        assert frame[2] == symi.DATA_TYPE_REPORT
-
-    def test_the_light_frame_can_be_a_set_frame(self) -> None:
-        """Some panels only take a set frame, so it can be chosen."""
-        protocol = symi.SymiProtocol(LED_FRAME_SET)
-        frame = protocol.build_led_frame(0x02, 3, True)
-        assert _hex(frame) == "7E 02 03 0F 01 00 01 03 00 00 00 00 01 A0 7D"
         assert frame[2] == symi.DATA_TYPE_SET
+
+    def test_the_light_frame_can_be_a_report_frame(self) -> None:
+        """A panel that answers the report frame can be driven with it."""
+        protocol = symi.SymiProtocol(LED_FRAME_REPORT)
+        frame = protocol.build_led_frame(0x02, 3, True)
+        assert _hex(frame) == "7E 02 04 0F 01 00 01 03 00 00 00 00 01 FD 7D"
+        assert frame[2] == symi.DATA_TYPE_REPORT
 
     def test_a_button_event_of_a_real_panel_is_parsed(self) -> None:
         """The frame a panel sends when a button is pressed is understood.
@@ -166,7 +171,7 @@ class TestSymiProtocol:
 
     def test_a_wrong_checksum_drops_a_feedback_frame(self) -> None:
         """A frame that is not a button event has to pass the checksum."""
-        protocol = symi.SymiProtocol()
+        protocol = symi.SymiProtocol(LED_FRAME_REPORT)
         frame = bytearray(protocol.build_led_frame(0x02, 1, True))
         frame[12] ^= 0xFF
         assert protocol.parse_frames(bytes(frame)) == []
@@ -350,7 +355,7 @@ class TestLfProtocol:
 @pytest.mark.parametrize(
     ("brand", "expected"),
     [
-        ("symi", "7E 02 04 0F 01 00 01 01 00 00 00 00 01 AF 7D"),
+        ("symi", "7E 02 03 0F 01 00 01 01 00 00 00 00 01 F2 7D"),
         ("clowire", "02 06 10 21 00 01 1C F3 AA"),
         ("lf", "02 06 10 08 01 01 CC AB"),
     ],

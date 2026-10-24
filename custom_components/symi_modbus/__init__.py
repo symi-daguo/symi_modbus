@@ -36,7 +36,7 @@ from .const import (
     CONF_SLAVE,
     CONF_STOPBITS,
     DOMAIN,
-    LED_FRAME_REPORT,
+    DEFAULT_LED_FRAME_TYPE,
     MODE_SWITCH,
     SERVICE_WRITE_COIL,
     SERVICE_WRITE_REGISTER,
@@ -189,7 +189,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: SymiModbusConfigEntry) -
             brand=str(subentry.data[CONF_BRAND]),
             panel_ids=[int(panel) for panel in subentry.data.get(CONF_PANEL_IDS, [])],
             led_frame_type=str(
-                subentry.data.get(CONF_LED_FRAME_TYPE, LED_FRAME_REPORT)
+                subentry.data.get(CONF_LED_FRAME_TYPE, DEFAULT_LED_FRAME_TYPE)
             ),
             led_codes=(
                 subentry.data.get(CONF_LED_ON_CODE),

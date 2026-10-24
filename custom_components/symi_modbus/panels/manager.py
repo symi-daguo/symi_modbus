@@ -8,7 +8,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 
 from . import PROTOCOLS
-from ..const import LED_FRAME_REPORT
+from ..const import DEFAULT_LED_FRAME_TYPE
 from .base import ButtonEvent, PanelProtocol
 from .connection import PanelConnection
 
@@ -88,7 +88,7 @@ class PanelManager:
         port: str,
         brand: str,
         panel_ids: list[int],
-        led_frame_type: str = LED_FRAME_REPORT,
+        led_frame_type: str = DEFAULT_LED_FRAME_TYPE,
         led_codes: tuple[int | None, int | None] = (None, None),
         baudrate: int = 9600,
         bytesize: int = 8,

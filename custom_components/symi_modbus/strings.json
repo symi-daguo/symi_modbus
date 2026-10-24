@@ -105,7 +105,7 @@
       "step": {
         "user": {
           "title": "Add a wall panel bus",
-          "description": "The serial line the panels are connected to, together with their brand. The brand decides which protocol is used to read the buttons and to drive the indicator lights. Pick the port from the list or type a path, a port that this integration already uses is not in the list. The feedback frame is the report frame 0x04 of the protocol document, change it to the set frame 0x03 when the light of the panel stays dark. Note: a panel usually uses codes of its own for the state it reports, the integration learns and keeps them from the frames of the panel. Fill them in here when the codes of the panel cannot be learned.",
+          "description": "The serial line the panels are connected to, together with their brand. The brand decides which protocol is used to read the buttons and to drive the indicator lights. Pick the port from the list or type a path, a port that this integration already uses is not in the list. The frame that drives the light is the set frame 0x03 of the protocol document, the panel answers with a report frame. Change it to the report frame 0x04 when the light of the panel stays dark. Note: a panel usually uses codes of its own for the state it reports, the integration learns and keeps them from the frames of the panel. Fill them in here when the codes of the panel cannot be learned.",
           "data": {
             "brand": "Panel brand",
             "port": "Serial device",
@@ -147,7 +147,7 @@
             "panel_count": "Number of panels",
             "buttons": "Buttons per panel"
           },
-          "description": "The serial line the panels are connected to, together with their brand. The brand decides which protocol is used to read the buttons and to drive the indicator lights. Pick the port from the list or type a path, a port that this integration already uses is not in the list. The feedback frame is the report frame 0x04 of the protocol document, change it to the set frame 0x03 when the light of the panel stays dark. Note: a panel usually uses codes of its own for the state it reports, the integration learns and keeps them from the frames of the panel. Fill them in here when the codes of the panel cannot be learned.",
+          "description": "The serial line the panels are connected to, together with their brand. The brand decides which protocol is used to read the buttons and to drive the indicator lights. Pick the port from the list or type a path, a port that this integration already uses is not in the list. The frame that drives the light is the set frame 0x03 of the protocol document, the panel answers with a report frame. Change it to the report frame 0x04 when the light of the panel stays dark. Note: a panel usually uses codes of its own for the state it reports, the integration learns and keeps them from the frames of the panel. Fill them in here when the codes of the panel cannot be learned.",
           "sections": {
             "advanced": {
               "name": "Advanced settings",

@@ -72,6 +72,7 @@ from .const import (
     DOMAIN,
     FRAME_MBAP,
     FRAME_RTU,
+    DEFAULT_LED_FRAME_TYPE,
     LED_FRAME_REPORT,
     LED_FRAME_SET,
     MAX_COIL_COUNT,
@@ -189,7 +190,7 @@ PANEL_FIELDS = {
     vol.Optional(SECTION_ADVANCED): section(
         vol.Schema(
             {
-                vol.Optional(CONF_LED_FRAME_TYPE, default=LED_FRAME_REPORT): SelectSelector(
+                vol.Optional(CONF_LED_FRAME_TYPE, default=DEFAULT_LED_FRAME_TYPE): SelectSelector(
                     SelectSelectorConfig(
                         options=[
                             {"value": LED_FRAME_REPORT, "label": "Report (0x04)"},

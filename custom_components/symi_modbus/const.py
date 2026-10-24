@@ -91,6 +91,11 @@ CONF_LED_OFF_CODE: Final = "led_off_code"
 LED_FRAME_REPORT: Final = "report"
 LED_FRAME_SET: Final = "set"
 
+# The frame that drives the indicator light of a panel. The protocol document
+# asks for the set frame, the panel answers with a report frame. A panel that
+# only answers the report frame can be set to it.
+DEFAULT_LED_FRAME_TYPE: Final = LED_FRAME_SET
+
 # The section of a form that holds the settings that are only needed when
 # something does not behave.
 SECTION_ADVANCED: Final = "advanced"

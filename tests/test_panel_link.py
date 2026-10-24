@@ -39,7 +39,7 @@ def test_the_light_is_written_with_the_address_of_the_button() -> None:
     )
 
     assert answer[0:2] == PRESS_FRAME[0:2]
-    assert answer[2] == 0x04  # a report frame, the protocol document asks for it
+    assert answer[2] == 0x03  # a set frame, the protocol document asks for it
     assert answer[6] == PRESS_FRAME[6]  # the device address
     assert answer[7] == PRESS_FRAME[7]  # the channel
     assert answer[12] == 0x01  # the state

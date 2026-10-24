@@ -82,7 +82,7 @@ from .const import (
     DEFAULT_COIL_COUNT,
     DEFAULT_SCAN_INTERVAL,
     FRAME_MBAP,
-    LED_FRAME_REPORT,
+    DEFAULT_LED_FRAME_TYPE,
     MODE_SWITCH,
     SUBENTRY_LINKAGE,
     SUBENTRY_PANEL,
@@ -197,7 +197,7 @@ def build_configuration(
                 str(subentry.data[CONF_BRAND]), subentry.data.get(CONF_BUTTONS)
             ),
             "led_frame": str(
-                subentry.data.get(CONF_LED_FRAME_TYPE, LED_FRAME_REPORT)
+                subentry.data.get(CONF_LED_FRAME_TYPE, DEFAULT_LED_FRAME_TYPE)
             ),
             "led_on_code": subentry.data.get(CONF_LED_ON_CODE),
             "led_off_code": subentry.data.get(CONF_LED_OFF_CODE),
@@ -475,7 +475,7 @@ def _panel_data(item: dict[str, Any]) -> dict[str, Any]:
         CONF_PANEL_IDS: [int(panel) for panel in item.get("panels", [])],
         # A panel has as many keys as its protocol says, never more.
         CONF_BUTTONS: panel_keys(brand, item.get("buttons")),
-        CONF_LED_FRAME_TYPE: str(item.get("led_frame", LED_FRAME_REPORT)),
+        CONF_LED_FRAME_TYPE: str(item.get("led_frame", DEFAULT_LED_FRAME_TYPE)),
     }
     if item.get("led_on_code") is not None:
         data[CONF_LED_ON_CODE] = int(item["led_on_code"])

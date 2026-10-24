@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 
-from ..const import LED_FRAME_REPORT, LED_FRAME_SET
+from ..const import DEFAULT_LED_FRAME_TYPE, LED_FRAME_SET
 from .base import ButtonEvent, PanelProtocol
 
 _LOGGER = logging.getLogger(__name__)
@@ -67,7 +67,7 @@ class SymiProtocol(PanelProtocol):
     brand = "symi"
     default_buttons = 8
 
-    def __init__(self, led_frame_type: str = LED_FRAME_REPORT) -> None:
+    def __init__(self, led_frame_type: str = DEFAULT_LED_FRAME_TYPE) -> None:
         """Initialize the stream buffer and the kind of feedback frame."""
         self._buffer = bytearray()
         self._led_frame_type = led_frame_type
@@ -103,12 +103,16 @@ class SymiProtocol(PanelProtocol):
     ) -> bytes:
         """Build the frame that drives the indicator light of a button.
 
-        The protocol document asks for a report frame, the address fields have
-        to be the ones the panel used in its button event, otherwise the
-        panel ignores the frame and the light stays dark.
+        The protocol document asks for the set frame, the panel answers with a
+        report frame. A report frame is only used for the panels that do not
+        answer the set frame. The address fields have to be the ones the panel
+        used in its button event, otherwise the panel ignores the frame and
+        the light stays dark.
         """
         data_type = (
-            DATA_TYPE_SET if self._led_frame_type == LED_FRAME_SET else DATA_TYPE_REPORT
+            DATA_TYPE_SET
+            if self._led_frame_type == LED_FRAME_SET
+            else DATA_TYPE_REPORT
         )
         body = bytes(
             [

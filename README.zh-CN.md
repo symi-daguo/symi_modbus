@@ -11,7 +11,7 @@
 
 | | |
 |---|---|
-| 版本 | **2.6.6** |
+| 版本 | **2.6.7** |
 | Home Assistant | **2025.3.0** 及以上 |
 | 依赖 | `pyserial`、`pyserial-asyncio-fast` |
 
@@ -154,6 +154,13 @@ docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
 - `scripts/generate_brand.py` 从 `assets/icon_source.png` 重新生成品牌图片。
 
 ## 更新日志
+
+### 2.6.7
+
+- 面板的指示灯**改用协议文档要求的 0x03 设置帧**驱动，面板会用 0x04 上报帧回应。以前发的是上报帧，
+  面板不理它，灯一直不亮；面板的回应还可能被当成按键上报，于是同一条线上的面板按键互相跟着变。
+- 配置的卡片**按人看得懂的顺序排**：先是从站，再是面板总线，最后是按键关联，关联按它驱动的继电器
+  顺序排。
 
 ### 2.6.6
 

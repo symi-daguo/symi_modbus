@@ -13,7 +13,7 @@ wall panel buses and the links between a panel button and a relay.
 
 | | |
 |---|---|
-| Version | **2.6.6** |
+| Version | **2.6.7** |
 | Home Assistant | **2025.3.0** or newer |
 | Dependencies | `pyserial`, `pyserial-asyncio-fast` |
 
@@ -181,6 +181,15 @@ docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
 - `scripts/generate_brand.py` regenerates the brand images from `assets/icon_source.png`.
 
 ## Changelog
+
+### 2.6.7
+
+- The **light of a panel is driven with the set frame** `0x03`, the frame the protocol document
+  asks for. The panel answers with a report frame. A report frame was used before, the panel did
+  not answer it and the light stayed dark, and the answer of a panel could be taken for the press of
+  a button, so the buttons of the panels on the line followed each other.
+- The **cards of the configuration stand in the order a person expects**: the slaves of the line
+  first, then the panel buses, then the links of the buttons, in the order of the relay they drive.
 
 ### 2.6.6
 
