@@ -51,12 +51,21 @@ def _codes_from_options(options: dict[str, Any]) -> dict[str, int]:
     return codes
 
 
-def _options_with_codes(options: dict[str, Any], codes: dict[str, int]) -> dict[str, Any]:
-    """Return the options of the entity with the learned codes.
+def _options_with_codes(
+    options: dict[str, Any],
+    codes: dict[str, int],
+    last_code: int | None = None,
+    is_toggle: bool = False,
+) -> dict[str, Any]:
+    """Return the options of the entity with what was learned from the panel.
 
     Only the codes that were learned are kept. A code that was not learned
     must not be written as a zero, the panel would read the zero as the code
     of the other state.
+
+    The code of the last press and what was learned about the kind of the key
+    are kept as well, so a panel that sends the same code every time still
+    toggles after a restart.
     """
     own = dict(options.get(DOMAIN) or {})
     own.pop("on_code", None)
@@ -65,6 +74,12 @@ def _options_with_codes(options: dict[str, Any], codes: dict[str, int]) -> dict[
         own["on_code"] = codes["on"]
     if "off" in codes:
         own["off_code"] = codes["off"]
+    own.pop("last_code", None)
+    own.pop("toggle", None)
+    if last_code is not None:
+        own["last_code"] = last_code
+    if is_toggle:
+        own["toggle"] = True
     return own
 
 
@@ -351,6 +366,15 @@ class PanelButtonSwitch(SwitchEntity):
         # frames of the panel and kept, so the light is driven with the codes
         # the panel understands.
         self._codes: dict[str, int] = {}
+        # The code of the last press of this key. A panel that sends the same
+        # code every time is a panel that toggles, the state of such a key
+        # flips on every press.
+        self._last_code: int | None = None
+        # True when the panel sends the same code for every press of this key.
+        # The code of such a panel is a trigger and not the code of a state, so
+        # it is not learned and the light is driven with the codes of the
+        # protocol.
+        self._is_toggle = False
         self._attr_available = panels.is_connected(subentry_id)
 
     @property
@@ -391,10 +415,15 @@ class PanelButtonSwitch(SwitchEntity):
         registry_entry = registry.async_get(self.entity_id)
         if registry_entry is None:
             return
-        self._codes.update(_codes_from_options(registry_entry.options or {}))
+        options = registry_entry.options or {}
+        self._codes.update(_codes_from_options(options))
+        own = options.get(DOMAIN) or {}
+        if "last_code" in own:
+            self._last_code = int(own["last_code"])
+        self._is_toggle = bool(own.get("toggle"))
 
     def _async_save_codes(self) -> None:
-        """Keep the learned codes, they survive a restart."""
+        """Keep what was learned, it survives a restart."""
         registry = er.async_get(self.hass)
         registry_entry = registry.async_get(self.entity_id)
         if registry_entry is None:
@@ -402,7 +431,12 @@ class PanelButtonSwitch(SwitchEntity):
         registry.async_update_entity_options(
             self.entity_id,
             DOMAIN,
-            _options_with_codes(registry_entry.options or {}, self._codes),
+            _options_with_codes(
+                registry_entry.options or {},
+                self._codes,
+                self._last_code,
+                self._is_toggle,
+            ),
         )
 
     def _state_of(self, code: int) -> bool | None:
@@ -428,15 +462,38 @@ class PanelButtonSwitch(SwitchEntity):
     def _press_state(self, event: ButtonEvent) -> tuple[bool, bool]:
         """Return the state a press goes to and whether the code is new.
 
-        A code that is known tells the state, also when the entity is out of
-        step because the relay wrote the light. A code that is not known yet
-        is read the way the brand of the panel reads it, so the state of the
-        entity is not used for it.
+        A panel has two kinds of keys. One kind tells the state of the light,
+        the protocol calls it the switch mode: the key sends the code of the
+        state it goes to. The other kind sends the same code for every press,
+        the protocol calls it the scene mode: the key is a trigger and the
+        state of the light flips on every press.
+
+        Which kind a key is shows in the frames: a key that sends the same
+        code again is a trigger. What was learned about it is kept, so the key
+        still toggles after a restart.
         """
         if event.is_toggle:
             # The panel does not tell which state the button goes to, the
             # light of the button is toggled and there is no code to learn.
             return not self._is_on, False
+        if self._is_toggle:
+            # The panel sends the same code for every press, the light of the
+            # button flips on every press.
+            return not self._is_on, False
+        if self._last_code is not None and event.code == self._last_code:
+            # The same code came a second time: the key is a trigger and the
+            # light of the button flips on every press. The code of a trigger
+            # is not the code of a state, so it is not learned.
+            self._is_toggle = True
+            self._codes.clear()
+            _LOGGER.info(
+                "Panel %s button %s sends the code %s every time, the light of "
+                "the button flips on every press",
+                self._panel_id,
+                self._button,
+                event.code,
+            )
+            return not self._is_on, True
         known = self._state_of(event.code)
         if known is not None:
             return known, False
@@ -489,16 +546,27 @@ class PanelButtonSwitch(SwitchEntity):
     def _async_button_event(self, event: ButtonEvent) -> None:
         """Handle what the panel reported for this button.
 
-        A set frame is the press of a button, so the code of the frame belongs
-        to the state the button goes to. When that code is known, it tells the
-        state, also when the entity is out of step because the relay wrote the
-        light. When the code is new, the brand of the panel says how the
-        state is read.
+        A set frame is the press of a button. What the press means for the
+        light of the button depends on the kind of the key: a key that tells
+        the state gives that state, a key that sends the same code every time
+        is a trigger and the light flips on every press.
 
-        The other frames report the state of the panel, they are only used
-        when their code is known.
+        The other frames report the state of the panel. They are only used
+        when their code is known, and never for a key that is a trigger: the
+        state the panel reports then would flip the light by itself.
         """
         if event.is_state:
+            if self._is_toggle:
+                # The panel reports the state of a key that is a trigger. The
+                # state follows the press, so the report of the panel must
+                # not change it, otherwise the light flips by itself.
+                _LOGGER.debug(
+                    "Panel %s reports the state of button %s, the key is a "
+                    "trigger and the state is left alone",
+                    event.panel_id,
+                    event.button,
+                )
+                return
             state = self._state_of(event.code)
             if state is None:
                 _LOGGER.debug(
@@ -510,10 +578,17 @@ class PanelButtonSwitch(SwitchEntity):
                 return
         else:
             state, is_new = self._press_state(event)
-            if is_new and event.is_state_code:
+            # The code of the last press is kept, so the kind of the key is
+            # known after a restart as well.
+            if event.code != self._last_code:
+                self._last_code = event.code
+            if is_new and event.is_state_code and not self._is_toggle:
                 # A code that is not the code of a state, a double click for
-                # example, is not learned.
+                # example, is not learned. The code of a trigger is not the
+                # code of a state either.
                 self._async_learn(event.code, state)
+            elif is_new:
+                self._async_save_codes()
 
         if state == self._is_on:
             return

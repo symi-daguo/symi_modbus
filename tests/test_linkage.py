@@ -261,17 +261,17 @@ async def test_the_light_of_a_panel_is_written_again_when_the_relay_changes() ->
 
 
 @pytest.mark.asyncio
-async def test_a_scene_is_triggered_with_every_press() -> None:
-    """A scene is turned on with every press of the button.
+async def test_a_scene_takes_the_state_the_press_flipped() -> None:
+    """A scene is triggered by the press, the relay takes the new state.
 
-    A button of a panel is a toggle, so the second press reports "off".
-    Following that state would switch the relay off instead of firing the
-    scene again.
+    A key of a panel that is a trigger flips the light of the button on every
+    press, so the relay of the scene follows that state. The light of the
+    button is not switched off again when the relay falls back.
     """
     panel_entity = "switch.symi_01_button_01"
     relay_entity = "switch.serial_dev_ttys0_0a_line_01"
     hass = FakeHass(
-        {panel_entity: FakeState("on"), relay_entity: FakeState("on")}
+        {panel_entity: FakeState("off"), relay_entity: FakeState("on")}
     )
 
     link = LinkageGroup(
@@ -279,8 +279,26 @@ async def test_a_scene_is_triggered_with_every_press() -> None:
     )
     await link.async_start()
 
-    # The button reports "off", the relay is turned on anyway.
-    await _trigger(hass, link, panel_entity, "off")
+    # The press flipped the light of the button on, the relay follows.
+    await _trigger(hass, link, panel_entity, "on")
     assert ("switch", "turn_on", {"entity_id": relay_entity}) in hass.services.calls
     # The light of the button still follows the button itself.
-    assert ("switch", "turn_off", {"entity_id": panel_entity}) in hass.services.calls
+    assert ("switch", "turn_on", {"entity_id": panel_entity}) in hass.services.calls
+
+
+@pytest.mark.asyncio
+async def test_the_light_of_a_scene_is_not_switched_off_by_the_relay() -> None:
+    """The relay of a scene does not drive the light of the button."""
+    panel_entity = "switch.symi_01_button_01"
+    relay_entity = "switch.serial_dev_ttys0_0a_line_01"
+    hass = FakeHass(
+        {panel_entity: FakeState("on"), relay_entity: FakeState("off")}
+    )
+
+    link = LinkageGroup(
+        hass, [panel_entity], [relay_entity], "test", mode=MODE_SCENE
+    )
+    await link.async_start()
+
+    await _trigger(hass, link, relay_entity, "off")
+    assert hass.services.calls == []

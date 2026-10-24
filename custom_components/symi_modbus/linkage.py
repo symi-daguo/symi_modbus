@@ -71,15 +71,9 @@ class LinkageGroup:
         source = event.data["entity_id"]
         if source in self._panels:
             # A press of a button lights its own indicator right away and
-            # drives the relays of the link.
-            if self._mode == MODE_SCENE:
-                # A scene is triggered, it does not keep a state. The relay is
-                # turned on every time, so the scene fires again and again.
-                # A button of a panel is a toggle, following its state would
-                # switch the relay off on the second press.
-                relay_state = STATE_ON
-            else:
-                relay_state = new_state.state
+            # drives the relays of the link. The relay takes the state the
+            # button goes to, which is the state the press flipped.
+            relay_state = new_state.state
             targets = [(relay, relay_state) for relay in self._relays]
             targets.append((source, new_state.state))
         elif source in self._relays:

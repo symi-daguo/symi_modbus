@@ -65,7 +65,11 @@ from time import monotonic
 from custom_components.symi_modbus.panels.base import ButtonEvent
 from custom_components.symi_modbus.panels.connection import PanelConnection
 from custom_components.symi_modbus.panels.symi import SymiProtocol
-from custom_components.symi_modbus.switch import PanelButtonSwitch
+from custom_components.symi_modbus.switch import (
+    PanelButtonSwitch,
+    _codes_from_options,
+    _options_with_codes,
+)
 
 
 class FakeManager:
@@ -107,6 +111,70 @@ def test_a_press_with_a_known_code_keeps_the_state() -> None:
     state, is_new = button._press_state(_press(1))
     assert state is True
     assert is_new is False
+
+
+def test_a_key_that_sends_the_same_code_again_flips_the_state() -> None:
+    """A panel that sends the same code every time has a key that flips.
+
+    The protocol has two kinds of keys. One kind tells the state of the light,
+    the other kind sends the same code for every press and is a trigger. The
+    frames show which kind a key is: the same code a second time means that
+    the key is a trigger and the light of the button flips on every press.
+    """
+    button = _button()
+    button._is_on = False
+    button._last_code = 1
+
+    state, is_new = button._press_state(_press(1))
+
+    assert state is True
+    assert button._is_toggle is True
+
+
+def test_the_code_of_a_trigger_is_not_learned() -> None:
+    """The code of a trigger is not the code of a state, so it is not learned."""
+    button = _button()
+    button._codes = {"on": 1, "off": 0}
+    button._is_on = True
+    button._last_code = 1
+
+    button._press_state(_press(1))
+
+    assert button._codes == {}
+
+
+def test_a_key_that_toggles_keeps_flipping() -> None:
+    """A key that was found to be a trigger flips on every press."""
+    button = _button()
+    button._is_on = False
+    button._is_toggle = True
+    button._last_code = 1
+
+    state, is_new = button._press_state(_press(1))
+
+    assert state is True
+    assert is_new is False
+
+
+def test_a_key_that_tells_the_state_follows_the_code() -> None:
+    """A key that sends another code tells the state of the light."""
+    button = _button()
+    button._codes = {"on": 1, "off": 0}
+    button._is_on = True
+    button._last_code = 1
+
+    state, is_new = button._press_state(_press(0))
+
+    assert state is False
+    assert button._is_toggle is False
+
+
+def test_what_was_learned_about_the_key_is_kept() -> None:
+    """The code of the last press and the kind of the key survive a restart."""
+    options = _options_with_codes({}, {"on": 1}, 1, True)
+
+    assert options == {"on_code": 1, "last_code": 1, "toggle": True}
+    assert _codes_from_options({"symi_modbus": options}) == {"on": 1}
 
 
 def test_a_press_with_an_unknown_code_is_read_the_way_the_brand_reads_it() -> None:

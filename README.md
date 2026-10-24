@@ -13,7 +13,7 @@ wall panel buses and the links between a panel button and a relay.
 
 | | |
 |---|---|
-| Version | **2.6.7** |
+| Version | **2.6.8** |
 | Home Assistant | **2025.3.0** or newer |
 | Dependencies | `pyserial`, `pyserial-asyncio-fast` |
 
@@ -75,7 +75,7 @@ on. A name that was changed by hand is kept.
 | Panel address, panel count | Panel bus | The addresses of the panels on that line. |
 | Buttons per panel | Panel bus | How many keys a panel of that brand has, eight for Symi and LF. |
 | Advanced settings | Panel bus | The frame of the indicator light and the codes of the light. Only needed when the light does not behave. |
-| Mode | Button link | **Switch** (default) keeps the state of the relay, **Scene** only triggers it once. |
+| Mode | Button link | **Switch** (default) keeps the state of the relay, **Scene** takes the state the press gives it. |
 
 ### The keys of a panel
 
@@ -121,7 +121,7 @@ between the button and the relay, the codes belong to the panel bus.
 | Mode | What the relay does | The indicator of the panel |
 |------|---------------------|-----------------------------|
 | **Switch** (default) | Holds its state, the state of the relay is the state of the light. | Follows the state of the relay. |
-| **Scene** | Only triggers a scene once, for example a scene of a smart home. | Answers the press and keeps its state, it is not switched off again by the relay falling back. |
+| **Scene** | Takes the state the press of the button gives it, for example a scene of a smart home. | Answers the press and keeps its state, it is not switched off again by the relay falling back. |
 
 ### A panel bus and a master never share a port
 
@@ -181,6 +181,19 @@ docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
 - `scripts/generate_brand.py` regenerates the brand images from `assets/icon_source.png`.
 
 ## Changelog
+
+### 2.6.8
+
+- **A key of a panel that sends the same code every time flips the light of the button.** The
+  protocol has two kinds of keys: one kind tells the state of the light, the other kind sends the
+  same code for every press and is a trigger. Which kind a key is shows in the frames, and what was
+  found out about it is kept with the entity, so the key still flips after a restart.
+- **The code of a trigger is not the code of a state.** It is not learned, and the light of the
+  button is driven with the codes of the protocol.
+- **The state a panel reports does not flip the light of a trigger by itself.** The report of the
+  panel is the answer to the light that was written, and the state follows the press.
+- A **scene takes the state the press of the button gives it** and not always the state that is
+  on. The relay of a scene was never switched off that way.
 
 ### 2.6.7
 
