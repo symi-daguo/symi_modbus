@@ -11,7 +11,7 @@
 
 | | |
 |---|---|
-| 版本 | **2.6.3** |
+| 版本 | **2.6.4** |
 | Home Assistant | **2025.3.0** 及以上 |
 | 依赖 | `pyserial`、`pyserial-asyncio-fast` |
 
@@ -140,6 +140,13 @@ docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
 - `scripts/generate_brand.py` 从 `assets/icon_source.png` 重新生成品牌图片。
 
 ## 更新日志
+
+### 2.6.4
+
+- 按键的**状态按面板品牌的读法来判**，不再靠翻转实体的状态。实体可能因为继电器写过灯而不同步，
+  面板用的码就会学到错误的状态上去：用码 0 表示「关」的面板，会被当成用码 0 表示「开」。
+- **手填的码最可信**，优先于学到的码。
+- **LF 面板的按键恢复翻转**。LF 的帧里不带状态，第一次按下学到的码把翻转盖住了。
 
 ### 2.6.3
 

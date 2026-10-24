@@ -365,6 +365,13 @@ class PanelButtonSwitch(SwitchEntity):
 
     def _state_of(self, code: int) -> bool | None:
         """Return the state a code stands for, None when it is unknown."""
+        # A code that was set by hand is the most certain one.
+        manual_on, manual_off = self._panels.manual_codes(self._subentry_id)
+        if manual_on != manual_off:
+            if code == manual_on:
+                return True
+            if code == manual_off:
+                return False
         on = self._codes.get("on")
         off = self._codes.get("off")
         if on is not None and on == off:
@@ -376,17 +383,22 @@ class PanelButtonSwitch(SwitchEntity):
             return False
         return None
 
-    def _press_state(self, code: int) -> tuple[bool, bool]:
+    def _press_state(self, event: ButtonEvent) -> tuple[bool, bool]:
         """Return the state a press goes to and whether the code is new.
 
-        When the code of the frame is known, it tells the state, also when the
-        entity is out of step because the relay wrote the light. When the code
-        is new, the button is a toggle and the state flips.
+        A code that is known tells the state, also when the entity is out of
+        step because the relay wrote the light. A code that is not known yet
+        is read the way the brand of the panel reads it, so the state of the
+        entity is not used for it.
         """
-        known = self._state_of(code)
+        if event.is_toggle:
+            # The panel does not tell which state the button goes to, the
+            # light of the button is toggled and there is no code to learn.
+            return not self._is_on, False
+        known = self._state_of(event.code)
         if known is not None:
             return known, False
-        return not self._is_on, True
+        return event.state, True
 
     def _async_learn(self, code: int, state: bool) -> None:
         """Remember the code the panel uses for this state."""
@@ -425,8 +437,8 @@ class PanelButtonSwitch(SwitchEntity):
         A set frame is the press of a button, so the code of the frame belongs
         to the state the button goes to. When that code is known, it tells the
         state, also when the entity is out of step because the relay wrote the
-        light. When the code is new, the button is a toggle and the state
-        flips.
+        light. When the code is new, the brand of the panel says how the
+        state is read.
 
         The other frames report the state of the panel, they are only used
         when their code is known.
@@ -442,7 +454,7 @@ class PanelButtonSwitch(SwitchEntity):
                 )
                 return
         else:
-            state, is_new = self._press_state(event.code)
+            state, is_new = self._press_state(event)
             if is_new:
                 self._async_learn(event.code, state)
 

@@ -34,6 +34,13 @@ class ButtonEvent:
     is_state: bool = False
     """True when the frame reports the state, false when it is a key press."""
 
+    is_toggle: bool = False
+    """True when the press carries no state, the button toggles its light.
+
+    Some brands do not tell in the frame which state the button goes to, the
+    press then only says that the button was used.
+    """
+
 
 class PanelProtocol(ABC):
     """Interface of a panel brand protocol.

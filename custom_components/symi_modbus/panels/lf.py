@@ -115,7 +115,14 @@ class LfProtocol(PanelProtocol):
                 button = self._mask_to_button(frame[5])
                 if button is not None:
                     events.append(
-                        ButtonEvent(panel_id=frame[0], button=button, state=True)
+                        ButtonEvent(
+                            panel_id=frame[0],
+                            button=button,
+                            state=True,
+                            # The frame does not tell which state the button
+                            # goes to, the light of the button is toggled.
+                            is_toggle=True,
+                        )
                     )
                 offset += ACTIVE_FRAME_LENGTH
             else:

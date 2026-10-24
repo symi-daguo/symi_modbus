@@ -13,7 +13,7 @@ wall panel buses and the links between a panel button and a relay.
 
 | | |
 |---|---|
-| Version | **2.6.3** |
+| Version | **2.6.4** |
 | Home Assistant | **2025.3.0** or newer |
 | Dependencies | `pyserial`, `pyserial-asyncio-fast` |
 
@@ -163,6 +163,17 @@ docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
 - `scripts/generate_brand.py` regenerates the brand images from `assets/icon_source.png`.
 
 ## Changelog
+
+### 2.6.4
+
+- The **state of a press is read the way the brand of the panel reads it**, and not by flipping the
+  state of the entity. The entity can be out of step because the relay wrote the light, and the
+  code of the panel was then learned for the wrong state: a panel that reports the state with the
+  code zero was taken for a panel that turns the light on with the code zero.
+- A **code that was set by hand is the most certain one** and is used before the codes that were
+  learned.
+- The buttons of the **LF panels toggle their light** again. The frame of those panels carries no
+  state, and the code that was learned from the first press hid the toggle.
 
 ### 2.6.3
 

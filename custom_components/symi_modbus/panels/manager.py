@@ -314,7 +314,7 @@ class PanelManager:
             "Panel %s button %s reported %s",
             event.panel_id,
             event.button,
-            "on" if event.state else "off",
+            "a press" if event.is_toggle else ("on" if event.state else "off"),
         )
 
         callback = self._buttons.get((subentry_id, event.panel_id, event.button))

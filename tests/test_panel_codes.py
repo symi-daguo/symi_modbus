@@ -104,20 +104,70 @@ def test_a_press_with_a_known_code_keeps_the_state() -> None:
 
     # The code of the press is the code of the "on" state, so the button goes on
     # even though it was on already.
-    state, is_new = button._press_state(1)
+    state, is_new = button._press_state(_press(1))
     assert state is True
     assert is_new is False
 
 
-def test_a_press_with_an_unknown_code_flips_the_state() -> None:
-    """A press with a code the panel uses first time is a toggle."""
+def test_a_press_with_an_unknown_code_is_read_the_way_the_brand_reads_it() -> None:
+    """A code that is not known yet is read the way the brand of the panel reads it.
+
+    The Symi panels put the state of the button in the frame, the code zero is
+    the state that is off. The state of the entity is not used for it, it can
+    be out of step because the relay wrote the light.
+    """
     button = _button()
     button._codes = {"on": 1}
     button._is_on = True
 
-    state, is_new = button._press_state(7)
+    # The code zero is the state that is off, also when the entity says on.
+    state, is_new = button._press_state(_press(0))
     assert state is False
     assert is_new is True
+
+    button._is_on = False
+    state, is_new = button._press_state(_press(7))
+    assert state is True
+    assert is_new is True
+
+
+def test_a_press_of_a_brand_that_reports_no_state_toggles_the_light() -> None:
+    """The LF panels do not tell which state the button goes to.
+
+    The press then only says that the button was used, the light of the button
+    is toggled and no code is learned.
+    """
+    button = _button()
+    event = ButtonEvent(panel_id=1, button=1, state=True, is_toggle=True)
+
+    button._is_on = False
+    state, is_new = button._press_state(event)
+    assert state is True
+    assert is_new is False
+
+    button._is_on = True
+    state, is_new = button._press_state(event)
+    assert state is False
+    assert is_new is False
+
+
+def test_a_code_that_was_set_by_hand_tells_the_state() -> None:
+    """A code that was set by hand is the most certain one."""
+    button = _button()
+    button._codes = {}
+    button._panels.manual_codes = lambda subentry_id: (17, 16)
+
+    assert button._state_of(17) is True
+    assert button._state_of(16) is False
+
+
+def test_two_codes_that_were_set_by_hand_are_not_used() -> None:
+    """Two codes that are the same tell nothing, so neither of them is used."""
+    button = _button()
+    button._codes = {}
+    button._panels.manual_codes = lambda subentry_id: (16, 16)
+
+    assert button._state_of(16) is None
 
 
 def test_the_code_zero_can_be_learned() -> None:
