@@ -20,27 +20,26 @@ def _hex(data: bytes) -> str:
 class TestSymiProtocol:
     """The Symi protocol uses its own framed dialect."""
 
-    def test_the_light_frame_has_the_documented_layout(self) -> None:
-        """The frame is the set frame the protocol document asks for.
+    def test_the_light_frame_is_a_report_frame(self) -> None:
+        """The light is driven with a report frame.
 
-        The document drives the light of a panel with the set frame and the
-        panel answers with a report frame. The frame is the same one the
-        Node-RED implementation builds.
+        The set frame is the frame a button event carries; a panel reads it as
+        a press again instead of driving the light, so the light never changes.
         """
         protocol = symi.SymiProtocol()
         frame = protocol.build_led_frame(0x02, 3, True)
         # The frame of the protocol document.
-        assert _hex(frame) == "7E 02 03 0F 01 00 01 03 00 00 00 00 01 A0 7D"
+        assert _hex(frame) == "7E 02 04 0F 01 00 01 03 00 00 00 00 01 FD 7D"
         assert frame[0] == symi.FRAME_HEADER
         assert frame[-1] == symi.FRAME_TAIL
-        assert frame[2] == symi.DATA_TYPE_SET
-
-    def test_the_light_frame_can_be_a_report_frame(self) -> None:
-        """A panel that answers the report frame can be driven with it."""
-        protocol = symi.SymiProtocol(LED_FRAME_REPORT)
-        frame = protocol.build_led_frame(0x02, 3, True)
-        assert _hex(frame) == "7E 02 04 0F 01 00 01 03 00 00 00 00 01 FD 7D"
         assert frame[2] == symi.DATA_TYPE_REPORT
+
+    def test_the_light_frame_can_be_a_set_frame(self) -> None:
+        """A panel that only takes the set frame can be driven with it."""
+        protocol = symi.SymiProtocol(LED_FRAME_SET)
+        frame = protocol.build_led_frame(0x02, 3, True)
+        assert _hex(frame) == "7E 02 03 0F 01 00 01 03 00 00 00 00 01 A0 7D"
+        assert frame[2] == symi.DATA_TYPE_SET
 
     def test_a_button_event_of_a_real_panel_is_parsed(self) -> None:
         """The frame a panel sends when a button is pressed is understood.
@@ -73,14 +72,15 @@ class TestSymiProtocol:
             events[0].channel,
         )
         # Only the data type differs from the button event.
-        assert frame[1] == 0x02
-        assert frame[6] == 0x01
+        assert frame[1] == 0x02  # the panel address
+        assert frame[6] == 0x01  # the device address of the key
         assert frame[7] == 0x03
 
     def test_a_pressed_button_is_reported(self) -> None:
         """The frame of a button press is turned into a button event."""
         protocol = symi.SymiProtocol()
-        frame = protocol.build_led_frame(0x05, 2, True)
+        body = bytes.fromhex("7E 05 03 0F 01 00 01 02 00 00 00 00 01")
+        frame = body + bytes([symi.calculate_crc8(body), symi.FRAME_TAIL])
         events = protocol.parse_frames(frame)
         assert len(events) == 1
         assert events[0].panel_id == 0x05
@@ -380,7 +380,7 @@ class TestLfProtocol:
 @pytest.mark.parametrize(
     ("brand", "expected"),
     [
-        ("symi", "7E 02 03 0F 01 00 01 01 00 00 00 00 01 F2 7D"),
+        ("symi", "7E 02 04 0F 01 00 01 01 00 00 00 00 01 AF 7D"),
         ("clowire", "02 06 10 21 00 01 1C F3 AA"),
         ("lf", "02 06 10 08 01 01 CC AB"),
     ],

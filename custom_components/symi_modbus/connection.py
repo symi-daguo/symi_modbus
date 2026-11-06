@@ -29,8 +29,10 @@ SERIAL_POST_WRITE_DELAY = 0.02
 MAX_FRAME_SIZE = 260
 
 # How many frames of the line are kept for the diagnostics. The customer can
-# look at the raw data of the bus there, without the log filling up.
-RECENT_FRAMES = 40
+# look at the raw data of the bus there, without the log filling up. A poll of
+# two slaves produces four frames per round, so 200 frames cover a few minutes
+# instead of the ten seconds that 40 frames used to cover.
+RECENT_FRAMES = 200
 
 
 def serial_bytesize(value: int) -> int:

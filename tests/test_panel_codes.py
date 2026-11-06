@@ -59,11 +59,13 @@ def test_the_light_is_driven_with_the_code_of_the_panel() -> None:
     assert frame[2] == 0x04
 
 
+import asyncio
 from collections import deque
 from time import monotonic
 
 from custom_components.symi_modbus.panels.base import ButtonEvent
 from custom_components.symi_modbus.panels.connection import PanelConnection
+from custom_components.symi_modbus.panels.manager import PanelManager
 from custom_components.symi_modbus.panels.symi import SymiProtocol
 from custom_components.symi_modbus.switch import (
     PanelButtonSwitch,
@@ -75,6 +77,10 @@ from custom_components.symi_modbus.switch import (
 class FakeManager:
     """A manager that only knows whether the bus is up."""
 
+    def __init__(self) -> None:
+        """Initialize the addresses that were learned."""
+        self.addresses: list[tuple] = []
+
     def is_connected(self, subentry_id: str) -> bool:
         """Return that the bus is up."""
         return True
@@ -83,13 +89,47 @@ class FakeManager:
         """Return that no code was set by hand."""
         return (None, None)
 
+    def learn_address(self, *args) -> None:
+        """Keep the address that was given back."""
+        self.addresses.append(args)
+
     async def async_set_button(self, *args, **kwargs) -> None:
         """Do nothing."""
 
 
-def _button() -> PanelButtonSwitch:
+def _button(brand: str = "symi") -> PanelButtonSwitch:
     """Return a button of a panel."""
-    return PanelButtonSwitch(FakeManager(), "bus", 1, 1, "symi", "unique")
+    return PanelButtonSwitch(FakeManager(), "bus", 1, 1, brand, "unique")
+
+
+def test_the_address_kept_with_the_entity_is_known_before_a_press(monkeypatch) -> None:
+    """The address that was kept with the entity is given back to the manager.
+
+    A restart loses the address that the panel used, so the light would be
+    written with the default address until the first press of the button.
+    """
+    manager = FakeManager()
+    button = PanelButtonSwitch(manager, "bus", 2, 3, "symi", "unique")
+    button.entity_id = "switch.panel"
+    button.hass = object()
+
+    class Registry:
+        """A registry that holds the options of the entity."""
+
+        def async_get(self, entity_id: str):
+            """Return the entry of the entity."""
+            entry = type("Entry", (), {})()
+            entry.options = {"symi_modbus": {"device_addr": 5, "channel": 7}}
+            return entry
+
+    monkeypatch.setattr(
+        "custom_components.symi_modbus.switch.er.async_get",
+        lambda hass: Registry(),
+    )
+
+    button._async_load_codes()
+
+    assert manager.addresses == [("bus", 2, 3, 5, 7)]
 
 
 def _connection() -> PanelConnection:
@@ -99,10 +139,9 @@ def _connection() -> PanelConnection:
     connection._recent = deque(maxlen=4)
     return connection
 
-
 def test_a_press_with_a_known_code_keeps_the_state() -> None:
     """A press whose code is known tells the state, the button does not flip."""
-    button = _button()
+    button = _button("lf")
     button._codes = {"on": 1, "off": 0}
     button._is_on = True
 
@@ -113,22 +152,29 @@ def test_a_press_with_a_known_code_keeps_the_state() -> None:
     assert is_new is False
 
 
-def test_a_key_that_sends_the_same_code_again_flips_the_state() -> None:
-    """A panel that sends the same code every time has a key that flips.
 
-    The protocol has two kinds of keys. One kind tells the state of the light,
-    the other kind sends the same code for every press and is a trigger. The
-    frames show which kind a key is: the same code a second time means that
-    the key is a trigger and the light of the button flips on every press.
+
+def test_a_repeat_of_the_same_code_is_ignored() -> None:
+    """A panel repeats the frame of a key while the key is held.
+
+    The repeat carries the same code and is the same press, so it must not
+    flip the light a second time.
     """
     button = _button()
-    button._is_on = False
     button._last_code = 1
+    button._last_press_at = 10.0
 
-    state, is_new = button._press_state(_press(1))
+    assert button._is_repeat(_press(1), 10.7) is True
+    assert button._is_repeat(_press(1), 11.6) is False
 
-    assert state is True
-    assert button._is_toggle is True
+
+def test_a_repeat_of_another_code_is_a_new_press() -> None:
+    """A frame with the other code is a new press."""
+    button = _button()
+    button._last_code = 1
+    button._last_press_at = 10.0
+
+    assert button._is_repeat(_press(0), 10.1) is False
 
 
 def test_the_code_of_a_trigger_is_not_learned() -> None:
@@ -136,24 +182,13 @@ def test_the_code_of_a_trigger_is_not_learned() -> None:
     button = _button()
     button._codes = {"on": 1, "off": 0}
     button._is_on = True
-    button._last_code = 1
+    button._is_toggle = True
 
     button._press_state(_press(1))
 
-    assert button._codes == {}
+    assert button._codes == {"on": 1, "off": 0}
 
 
-def test_a_key_that_toggles_keeps_flipping() -> None:
-    """A key that was found to be a trigger flips on every press."""
-    button = _button()
-    button._is_on = False
-    button._is_toggle = True
-    button._last_code = 1
-
-    state, is_new = button._press_state(_press(1))
-
-    assert state is True
-    assert is_new is False
 
 
 def test_a_key_that_tells_the_state_follows_the_code() -> None:
@@ -313,6 +348,24 @@ def test_a_press_of_the_panel_is_not_an_echo() -> None:
     assert connection._is_echo(press) is False
 
 
+def test_the_echo_of_a_scene_key_is_an_echo() -> None:
+    """The echo of a frame for a scene key is recognised.
+
+    A key that is used for a scene reports the channel 0x1N while its button
+    number is N. The frame is sent with the channel of the event, so the echo
+    is compared with that channel and not with the button number.
+    """
+    connection = _connection()
+    connection._echoes = [(2, 0x11, 1, monotonic())]
+
+    echo = ButtonEvent(
+        panel_id=2, button=1, state=True, device_addr=1, channel=0x11, code=1
+    )
+    assert connection._is_echo(echo) is True
+
+
+
+
 def test_the_echo_of_another_panel_is_not_an_echo() -> None:
     """The echo of another panel is not the echo of this frame."""
     connection = _connection()
@@ -370,3 +423,51 @@ def test_a_panel_with_a_broken_checksum_is_still_understood() -> None:
     events = protocol.parse_frames(frame)
     assert len(events) == 1
     assert events[0].panel_id == 1
+
+
+class FakeBus:
+    """A bus that keeps the frames that were written to it."""
+
+    def __init__(self) -> None:
+        """Initialize the list of calls."""
+        self.calls: list[tuple] = []
+
+    async def async_write_led(self, *args) -> None:
+        """Keep the arguments of the light update."""
+        self.calls.append(args)
+
+
+def test_the_light_is_written_with_the_address_of_the_button() -> None:
+    """The address that was learned for a button is the one of its light."""
+    manager = PanelManager(None, "entry")
+    bus = FakeBus()
+    manager._ports["panel"] = "/dev/ttyUSB0"
+    manager._buses["/dev/ttyUSB0"] = bus
+    manager.learn_address("panel", 2, 3, 1, 3)
+
+    asyncio.run(manager.async_set_button("panel", 2, 3, True, 1))
+
+    assert bus.calls == [(2, 3, True, 1, 3, 1)]
+
+
+def test_the_same_light_frame_is_queued_once() -> None:
+    """Several links drive the same button, the frame goes out once.
+
+    Every link writes the same state in the same tick. Sending the frame three
+    times puts three frames on the bus for one change.
+    """
+    connection = PanelConnection.__new__(PanelConnection)
+    connection._queue = deque()
+    connection._write_lock = asyncio.Lock()
+    connection._queue_event = asyncio.Event()
+    connection._protocol = SymiProtocol()
+    connection._last_led = None
+
+    async def run() -> None:
+        await connection.async_write_led(1, 1, True)
+        await connection.async_write_led(1, 1, True)
+        await connection.async_write_led(1, 1, False)
+
+    asyncio.run(run())
+
+    assert len(connection._queue) == 2

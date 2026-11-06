@@ -40,6 +40,10 @@ ECHO_WINDOW = 0.15
 # the queue grow without limit.
 MAX_QUEUE = 500
 
+# Several links can drive the same button of a panel. They all write the same
+# state in the same tick, so a frame that repeats the one just sent is dropped.
+LED_DEDUPE_WINDOW = 0.2
+
 # How many chunks of the line are kept for the diagnostics. The customer can
 # look at the raw data of the bus there, without the log filling up.
 RECENT_CHUNKS = 40
@@ -60,8 +64,14 @@ def serial_port_holders(
     """
     target = str(port)
     exclude = exclude or set()
+    try:
+        pids = os.listdir("/proc")
+    except FileNotFoundError:
+        # /proc exists on Linux only. On another system the open handles
+        # cannot be read, so no other program is reported.
+        return 0
     count = 0
-    for pid in os.listdir("/proc"):
+    for pid in pids:
         if not pid.isdigit():
             continue
         fd_dir = f"/proc/{pid}/fd"
@@ -122,6 +132,8 @@ class PanelConnection:
         self._queue_event = asyncio.Event()
         # The echoes of the frames we sent: panel, channel, code, time.
         self._echoes: list[tuple[int, int, int, float]] = []
+        # The last light that was put on the queue: panel, channel, code, time.
+        self._last_led: tuple[int, int, int, float] | None = None
         # When the last data arrived, so the line can be left alone.
         self._last_received_at: float | None = None
         self._seen_data = False
@@ -293,14 +305,17 @@ class PanelConnection:
         The echo carries the channel and the code of the frame that was sent,
         so those are compared. The state is not used, a panel can use a code of
         its own for the state and then the state of the echo does not tell
-        which frame it belongs to.
+        which frame it belongs to. The channel of the event is the one that was
+        sent: a key that is used for a scene reports 0x1N while its button
+        number is N, and comparing the button number would let the echo pass
+        for a press.
         """
         now = monotonic()
         self._echoes = [echo for echo in self._echoes if now - echo[3] < ECHO_WINDOW]
         for index, (panel_id, channel, code, sent_at) in enumerate(self._echoes):
             if (
                 panel_id == event.panel_id
-                and channel == event.button
+                and channel == (event.channel or event.button)
                 and code == event.code
                 and now - sent_at < ECHO_WINDOW
             ):
@@ -326,6 +341,17 @@ class PanelConnection:
         # for a panel that uses a code of its own for the state.
         used_channel = button if channel is None else channel
         used_code = (1 if state else 0) if code is None else code
+        now = monotonic()
+        last = self._last_led
+        if (
+            last is not None
+            and last[:3] == (panel_id, used_channel, used_code)
+            and now - last[3] < LED_DEDUPE_WINDOW
+        ):
+            # Several links drive the same button, the frame of this tick is
+            # already on the queue.
+            return
+        self._last_led = (panel_id, used_channel, used_code, now)
         await self._async_enqueue(frame, (panel_id, used_channel, used_code))
 
     async def async_write_raw(self, frame: bytes) -> None:

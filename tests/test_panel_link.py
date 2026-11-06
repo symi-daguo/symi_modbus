@@ -39,7 +39,7 @@ def test_the_light_is_written_with_the_address_of_the_button() -> None:
     )
 
     assert answer[0:2] == PRESS_FRAME[0:2]
-    assert answer[2] == 0x03  # a set frame, the protocol document asks for it
+    assert answer[2] == 0x04  # a report frame, it drives the indicator light
     assert answer[6] == PRESS_FRAME[6]  # the device address
     assert answer[7] == PRESS_FRAME[7]  # the channel
     assert answer[12] == 0x01  # the state
@@ -64,7 +64,12 @@ def test_every_button_keeps_its_own_address() -> None:
 
 
 def test_the_set_frame_is_the_one_of_the_node_red_implementation() -> None:
-    """The set frame is the frame the original node writes."""
+    """The set frame carries the panel address as its device address.
+
+    The original implementation wrote the address of the button there. Two
+    panels of a bus use the same address for their keys, so that frame drove
+    the light of both panels.
+    """
     from custom_components.symi_modbus.const import LED_FRAME_SET
 
     protocol = SymiProtocol(LED_FRAME_SET)

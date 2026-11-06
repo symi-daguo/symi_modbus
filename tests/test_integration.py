@@ -159,7 +159,15 @@ def test_the_hacs_file_follows_the_rules_of_hacs() -> None:
     }
     assert set(hacs) <= allowed, f"hacs.json has keys HACS does not know: {set(hacs) - allowed}"
     assert hacs["name"]
-    assert hacs["homeassistant"] == manifest["homeassistant"]
+    # The manifest follows the core schema, so the lowest Home Assistant
+    # version lives in hacs.json only.
+    assert "homeassistant" not in manifest, (
+        "the version belongs to hacs.json, the core manifest rejects the key"
+    )
+    lowest = tuple(int(part) for part in hacs["homeassistant"].split("."))
+    assert lowest >= (2026, 9, 0), (
+        "the integration uses the subentry API of Home Assistant 2026.9"
+    )
     # HACS refuses a zip_release without a filename, and a fixed filename
     # breaks with the next release, so the installation follows the tag of
     # the repository instead.

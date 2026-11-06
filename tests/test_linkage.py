@@ -100,11 +100,8 @@ async def test_a_panel_button_drives_the_relay() -> None:
 
     await _trigger(hass, group, "switch.panel", "on")
 
-    # The relay is driven and the button gets the frame for its own light.
-    assert {call[2]["entity_id"] for call in hass.services.calls} == {
-        "switch.relay",
-        "switch.panel",
-    }
+    # The relay is driven, the panel lights its own key.
+    assert {call[2]["entity_id"] for call in hass.services.calls} == {"switch.relay"}
 
 
 @pytest.mark.asyncio
@@ -143,7 +140,6 @@ async def test_one_button_drives_several_relays() -> None:
     assert {call[2]["entity_id"] for call in hass.services.calls} == {
         "switch.relay_a",
         "switch.relay_b",
-        "switch.panel",
     }
 
 
@@ -181,9 +177,9 @@ async def test_a_target_with_the_wanted_state_is_left_alone() -> None:
 
     await _trigger(hass, group, "switch.panel", "on")
 
-    # The relay already shows the wanted state, only the light of the button
-    # is written.
-    assert {call[2]["entity_id"] for call in hass.services.calls} == {"switch.panel"}
+    # The relay already shows the wanted state and the panel lights its own
+    # key, nothing is written.
+    assert hass.services.calls == []
 
 
 @pytest.mark.asyncio
@@ -195,9 +191,9 @@ async def test_an_unknown_target_is_skipped() -> None:
 
     await _trigger(hass, group, "switch.panel", "on")
 
-    # The relay already shows the wanted state, only the light of the button
-    # is written.
-    assert {call[2]["entity_id"] for call in hass.services.calls} == {"switch.panel"}
+    # The relay already shows the wanted state and the panel lights its own
+    # key, nothing is written.
+    assert hass.services.calls == []
 
 
 @pytest.mark.asyncio
@@ -241,8 +237,8 @@ async def test_a_scene_link_still_drives_the_relay() -> None:
     hass.states[panel_entity] = "on"
     await _trigger(hass, link, panel_entity, "on")
     assert ("switch", "turn_on", {"entity_id": relay_entity}) in hass.services.calls
-    # The light of the button answers the press at once.
-    assert ("switch", "turn_on", {"entity_id": panel_entity}) in hass.services.calls
+    # The panel lights the key itself, no frame is written for it.
+    assert ("switch", "turn_on", {"entity_id": panel_entity}) not in hass.services.calls
 
 
 @pytest.mark.asyncio
@@ -288,8 +284,8 @@ async def test_a_scene_takes_the_state_the_press_flipped() -> None:
     # The press flipped the light of the button on, the relay follows.
     await _trigger(hass, link, panel_entity, "on")
     assert ("switch", "turn_on", {"entity_id": relay_entity}) in hass.services.calls
-    # The light of the button still follows the button itself.
-    assert ("switch", "turn_on", {"entity_id": panel_entity}) in hass.services.calls
+    # The panel lights the key itself, no frame is written for it.
+    assert ("switch", "turn_on", {"entity_id": panel_entity}) not in hass.services.calls
 
 
 @pytest.mark.asyncio
@@ -327,6 +323,5 @@ async def test_a_button_gets_the_state_of_the_relay_when_the_link_starts() -> No
     link = LinkageGroup(hass, [panel_entity], [relay_entity], "test")
     await link.async_start()
 
-    assert hass.services.calls == [
-        ("switch", "turn_on", {"entity_id": panel_entity})
-    ]
+    # Nothing is written, the panel lights its own key.
+    assert hass.services.calls == []

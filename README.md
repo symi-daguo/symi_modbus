@@ -13,7 +13,7 @@ wall panel buses and the links between a panel button and a relay.
 
 | | |
 |---|---|
-| Version | **2.6.8** |
+| Version | **2.6.11** |
 | Home Assistant | **2025.3.0** or newer |
 | Dependencies | `pyserial`, `pyserial-asyncio-fast` |
 
@@ -181,6 +181,38 @@ docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
 - `scripts/generate_brand.py` regenerates the brand images from `assets/icon_source.png`.
 
 ## Changelog
+
+### 2.6.11
+
+- **The frames of the bus are kept for minutes.** The diagnostics kept 40 frames, about ten
+  seconds of a bus with two slaves. 200 frames are kept now.
+- **A write to an entity that is not available yet is tried again.** A fresh entry reports
+  unavailable until the first poll answered, the write of the link was lost before.
+- **The light of a panel is written once for a press.** Several state changes of one press asked
+  for the same frame. Only the first one in 0.3 seconds reaches the bus.
+- **A press of a key does not write the light of the panel.** The panel lights its own key; a
+  frame of the host reaches every panel of the bus that shares the device address.
+- **The state of a key follows the frame of the panel.** A repeated frame of a panel no longer
+  flips the light, the state of the relay and the light of the key stay together.
+
+### 2.6.10
+
+- **A panel that reports the light of another panel is ignored.** Two panels of a bus can use the
+  same device address and channel for a key. The frame of a light that was written for one panel
+  then came back with the address of the other panel and was taken for a press, so the key of the
+  other panel and its light moved as well. Such a frame is dropped now.
+
+### 2.6.9
+
+- **The echo of a frame for a scene key is not taken for a press.** A key that is used for a
+  scene reports the channel `0x1N`, and the frame for its light carries that channel. The echo is
+  now compared with the channel of the event, so it no longer flips the light a second time.
+- **The panel bus opens on macOS.** The check for another program on the serial port read `/proc`,
+  which exists on Linux only, and the error kept the bus from opening at all.
+- **The address of a button is kept with the entity.** The light of a panel whose buttons use an
+  address other than `1` is driven with the right address after a restart, before the first press.
+- The **manifest follows the schema of Home Assistant**, and the lowest version is `2026.9`, the
+  first release with the subentry API the integration uses.
 
 ### 2.6.8
 

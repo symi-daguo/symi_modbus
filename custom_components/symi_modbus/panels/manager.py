@@ -301,13 +301,34 @@ class PanelManager:
 
         return handle
 
+    def learn_address(
+        self,
+        subentry_id: str,
+        panel_id: int,
+        button: int,
+        device_addr: int,
+        channel: int,
+    ) -> None:
+        """Keep the address a panel used for a button.
+
+        The light has to be written with the very address of the button event.
+        The address is kept with the entity as well, so it is known after a
+        restart before the first press of the button.
+        """
+        self._addresses[(subentry_id, panel_id, button)] = (device_addr, channel)
+
     def _handle_event(self, subentry_id: str, event: ButtonEvent) -> None:
         """Forward a button event to the entities and the listeners."""
         if event.button:
             # The indicator light has to be written with the very address the
             # panel used in its button event, every button can use its own.
-            key = (subentry_id, event.panel_id, event.button)
-            self._addresses[key] = (event.device_addr, event.channel or event.button)
+            self.learn_address(
+                subentry_id,
+                event.panel_id,
+                event.button,
+                event.device_addr,
+                event.channel or event.button,
+            )
             self._warn_about_missing_entity(subentry_id, event)
 
         _LOGGER.info(

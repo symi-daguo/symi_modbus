@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from time import monotonic
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
@@ -35,6 +36,12 @@ PARALLEL_UPDATES = 0
 # Key of the first coil of a slave.
 CONF_COIL_START = "start"
 
+# A panel sends the frame of a key again while the key is held or right after
+# it was pressed. The frame carries the same code, so it would be taken for a
+# new press and flip the light a second time. A frame with the same code
+# inside this window belongs to the press that was handled already.
+PRESS_DEBOUNCE = 1.5
+
 
 def _codes_from_options(options: dict[str, Any]) -> dict[str, int]:
     """Return the codes of a panel that are kept with the entity.
@@ -56,6 +63,7 @@ def _options_with_codes(
     codes: dict[str, int],
     last_code: int | None = None,
     is_toggle: bool = False,
+    address: tuple[int, int] | None = None,
 ) -> dict[str, Any]:
     """Return the options of the entity with what was learned from the panel.
 
@@ -65,7 +73,9 @@ def _options_with_codes(
 
     The code of the last press and what was learned about the kind of the key
     are kept as well, so a panel that sends the same code every time still
-    toggles after a restart.
+    toggles after a restart. The address of the button is kept with them, so
+    the light is driven with the address the panel asked for after a restart,
+    before the first press of the button.
     """
     own = dict(options.get(DOMAIN) or {})
     own.pop("on_code", None)
@@ -76,10 +86,14 @@ def _options_with_codes(
         own["off_code"] = codes["off"]
     own.pop("last_code", None)
     own.pop("toggle", None)
+    own.pop("device_addr", None)
+    own.pop("channel", None)
     if last_code is not None:
         own["last_code"] = last_code
     if is_toggle:
         own["toggle"] = True
+    if address is not None:
+        own["device_addr"], own["channel"] = address
     return own
 
 
@@ -375,6 +389,13 @@ class PanelButtonSwitch(SwitchEntity):
         # it is not learned and the light is driven with the codes of the
         # protocol.
         self._is_toggle = False
+        # The code of the last press and when it arrived. A frame with the
+        # same code inside the debounce window is the repeat of that press.
+        self._last_press_at = 0.0
+        # The address the panel used for this button, learned from its events
+        # and kept, so the light is driven with it after a restart before the
+        # first press of the button.
+        self._address: tuple[int, int] | None = None
         self._attr_available = panels.is_connected(subentry_id)
 
     @property
@@ -420,7 +441,23 @@ class PanelButtonSwitch(SwitchEntity):
         own = options.get(DOMAIN) or {}
         if "last_code" in own:
             self._last_code = int(own["last_code"])
-        self._is_toggle = bool(own.get("toggle"))
+        # The kind of the key is read from every frame: a key that is a
+        # trigger is marked by the protocol (the device type of a scene, a
+        # brand that does not report a state). An older version guessed a
+        # trigger from a repeated code and kept the guess, so a repeat of a
+        # panel flipped the light and the state did not follow the relay.
+        self._is_toggle = False
+        address = own.get("device_addr")
+        channel = own.get("channel")
+        if address is not None and channel is not None:
+            self._address = (int(address), int(channel))
+            self._panels.learn_address(
+                self._subentry_id,
+                self._panel_id,
+                self._button,
+                int(address),
+                int(channel),
+            )
 
     def _async_save_codes(self) -> None:
         """Keep what was learned, it survives a restart."""
@@ -436,6 +473,7 @@ class PanelButtonSwitch(SwitchEntity):
                 self._codes,
                 self._last_code,
                 self._is_toggle,
+                self._address,
             ),
         )
 
@@ -459,41 +497,30 @@ class PanelButtonSwitch(SwitchEntity):
             return False
         return None
 
+    def _is_repeat(self, event: ButtonEvent, now: float) -> bool:
+        """Return True when the frame repeats the press before it.
+
+        A panel sends the frame of a key again while the key is held or right
+        after it was pressed. The frame carries the same code and is the same
+        press, so it must not flip the light a second time.
+        """
+        return event.code == self._last_code and now - self._last_press_at < PRESS_DEBOUNCE
+
     def _press_state(self, event: ButtonEvent) -> tuple[bool, bool]:
         """Return the state a press goes to and whether the code is new.
 
         A panel has two kinds of keys. One kind tells the state of the light,
         the protocol calls it the switch mode: the key sends the code of the
-        state it goes to. The other kind sends the same code for every press,
-        the protocol calls it the scene mode: the key is a trigger and the
-        state of the light flips on every press.
-
-        Which kind a key is shows in the frames: a key that sends the same
-        code again is a trigger. What was learned about it is kept, so the key
-        still toggles after a restart.
+        state it goes to. The other kind is a trigger and the state of the
+        light flips on every press: the protocol marks it with the device type
+        of a scene, a brand that does not report the state marks it in its
+        frames. What was learned about it is kept, so the key still flips
+        after a restart.
         """
         if event.is_toggle:
             # The panel does not tell which state the button goes to, the
             # light of the button is toggled and there is no code to learn.
             return not self._is_on, False
-        if self._is_toggle:
-            # The panel sends the same code for every press, the light of the
-            # button flips on every press.
-            return not self._is_on, False
-        if self._last_code is not None and event.code == self._last_code:
-            # The same code came a second time: the key is a trigger and the
-            # light of the button flips on every press. The code of a trigger
-            # is not the code of a state, so it is not learned.
-            self._is_toggle = True
-            self._codes.clear()
-            _LOGGER.info(
-                "Panel %s button %s sends the code %s every time, the light of "
-                "the button flips on every press",
-                self._panel_id,
-                self._button,
-                event.code,
-            )
-            return not self._is_on, True
         known = self._state_of(event.code)
         if known is not None:
             return known, False
@@ -555,6 +582,31 @@ class PanelButtonSwitch(SwitchEntity):
         when their code is known, and never for a key that is a trigger: the
         state the panel reports then would flip the light by itself.
         """
+        address = (event.device_addr, event.channel or event.button)
+        if address != self._address:
+            # The address is kept, so the light is driven with it after a
+            # restart before the first press of the button.
+            self._address = address
+            if self.entity_id is not None:
+                self._async_save_codes()
+
+        if not event.is_state:
+            now = monotonic()
+            if self._is_repeat(event, now):
+                # The panel sends the frame of the key again and again while
+                # the key is held. Every repeat pushes the window, so the run
+                # of repeats is one press.
+                self._last_press_at = now
+                _LOGGER.debug(
+                    "Panel %s button %s sent the code %s again, the repeat is "
+                    "ignored",
+                    event.panel_id,
+                    event.button,
+                    event.code,
+                )
+                return
+            self._last_press_at = now
+
         if event.is_state:
             if self._is_toggle:
                 # The panel reports the state of a key that is a trigger. The

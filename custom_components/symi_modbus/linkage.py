@@ -1,7 +1,9 @@
 """Keeps the panel buttons and the Modbus coils they control in sync."""
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 
 from homeassistant.const import SERVICE_TURN_OFF, SERVICE_TURN_ON, STATE_OFF, STATE_ON
 from homeassistant.core import Event, HomeAssistant, callback
@@ -10,6 +12,16 @@ from homeassistant.helpers.event import async_track_state_change_event
 from .const import MODE_SCENE, MODE_SWITCH
 
 _LOGGER = logging.getLogger(__name__)
+
+# An entity of a fresh entry reports unavailable until the first poll of the
+# bus answered. The write is tried again a few times instead of being lost.
+APPLY_RETRY_DELAYS = (0.5, 1.0, 2.0)
+
+# Several state changes of one press all want to write the same indicator
+# light. Only the first one in the window reaches the bus.
+LED_DEDUPE_WINDOW = 0.3
+
+_UNAVAILABLE_STATES = ("unavailable", "unknown")
 
 
 class LinkageGroup:
@@ -35,6 +47,8 @@ class LinkageGroup:
         self._title = title
         self._mode = mode
         self._unsub = None
+        # The last write of an indicator light: entity, state, time.
+        self._last_write: dict[tuple[str, str], float] = {}
 
     @property
     def entity_ids(self) -> list[str]:
@@ -57,22 +71,14 @@ class LinkageGroup:
         await self._async_sync_start()
 
     async def _async_sync_start(self) -> None:
-        """Give the buttons the state of the relays they drive.
+        """Nothing is written to a panel when the link starts.
 
-        A button of a panel starts without a state, the relay knows what it
-        does. The state of the relay is pushed to the button when the link
-        starts, so the light of the panel shows what the relay does and a
-        press of the button flips the state that is really there.
+        The light of a panel is lit by the panel itself when a key is used.
+        A frame of the host would reach every panel of the bus, because the
+        keys of the panels share the same device address. The state of a
+        button follows the frame the panel sends, so there is nothing to push.
         """
-        for relay in self._relays:
-            state = self._hass.states.get(relay)
-            if state is None or state.state not in (STATE_ON, STATE_OFF):
-                continue
-            for panel in self._panels:
-                current = self._hass.states.get(panel)
-                if current is not None and current.state == state.state:
-                    continue
-                await self._async_apply(panel, state.state)
+        return
 
     async def async_stop(self) -> None:
         """Stop watching the entities of this group."""
@@ -89,12 +95,12 @@ class LinkageGroup:
 
         source = event.data["entity_id"]
         if source in self._panels:
-            # A press of a button lights its own indicator right away and
-            # drives the relays of the link. The relay takes the state the
-            # button goes to, which is the state the press flipped.
+            # A press of a button flips the light of the panel itself, the
+            # panel answers the press on its own. Writing the light again
+            # would put a frame on the bus that every panel of the bus takes
+            # for its own key, so only the relays of the link are written.
             relay_state = new_state.state
             targets = [(relay, relay_state) for relay in self._relays]
-            targets.append((source, new_state.state))
         elif source in self._relays:
             if self._mode == MODE_SCENE:
                 # A scene is a single action without a lasting state, so the
@@ -128,8 +134,45 @@ class LinkageGroup:
                 continue
             self._hass.async_create_task(self._async_apply(target, desired))
 
-    async def _async_apply(self, entity_id: str, state: str) -> None:
-        """Turn an entity on or off."""
+    async def _async_apply(
+        self, entity_id: str, state: str, attempt: int = 0
+    ) -> None:
+        """Turn an entity on or off, waiting for it to become available."""
+        current = self._hass.states.get(entity_id)
+        if current is None or current.state in _UNAVAILABLE_STATES:
+            if attempt >= len(APPLY_RETRY_DELAYS):
+                _LOGGER.debug(
+                    "Linkage %s gave up on %s -> %s (still not available)",
+                    self._title,
+                    entity_id,
+                    state,
+                )
+                return
+            _LOGGER.debug(
+                "Linkage %s defers %s -> %s (entity not available, retry %s)",
+                self._title,
+                entity_id,
+                state,
+                attempt + 1,
+            )
+            await asyncio.sleep(APPLY_RETRY_DELAYS[attempt])
+            await self._async_apply(entity_id, state, attempt + 1)
+            return
+
+        if entity_id in self._panels:
+            key = (entity_id, state)
+            now = time.monotonic()
+            last = self._last_write.get(key)
+            if last is not None and now - last < LED_DEDUPE_WINDOW:
+                _LOGGER.debug(
+                    "Linkage %s skips duplicate LED write %s -> %s",
+                    self._title,
+                    entity_id,
+                    state,
+                )
+                return
+            self._last_write[key] = now
+
         _LOGGER.debug(
             "Linkage %s sets %s to %s", self._title, entity_id, state
         )

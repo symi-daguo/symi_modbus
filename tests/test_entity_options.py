@@ -53,3 +53,23 @@ def test_a_code_that_was_wrong_is_dropped() -> None:
     options = _options_with_codes({"on_code": 0, "off_code": 0}, {"on": 1})
 
     assert options == {"on_code": 1}
+
+
+def test_the_address_of_a_button_is_kept() -> None:
+    """The address the panel used is kept with the codes.
+
+    The light has to be written with the address of the button event, also
+    after a restart, before the first press of the button.
+    """
+    options = _options_with_codes({}, {"on": 17}, address=(2, 5))
+
+    assert options == {"on_code": 17, "device_addr": 2, "channel": 5}
+
+
+def test_the_address_of_the_panel_replaces_the_old_one() -> None:
+    """An address that was learned before is replaced by the new one."""
+    options = _options_with_codes(
+        {"device_addr": 1, "channel": 3}, {}, address=(2, 5)
+    )
+
+    assert options == {"device_addr": 2, "channel": 5}

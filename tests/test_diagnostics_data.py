@@ -20,12 +20,12 @@ def test_only_the_last_frames_are_kept() -> None:
     """The buffer of the frames does not grow without limit."""
     connection = ModbusConnection(connection_type="serial", port="/dev/ttyS0")
 
-    for index in range(100):
+    for index in range(250):
         connection._remember(">", bytes([index % 256]))
 
     traffic = connection.recent_traffic()
-    assert len(traffic) == 40
-    assert traffic[-1] == "> 63"
+    assert len(traffic) == 200
+    assert traffic[-1] == "> F9"
 
 
 def test_the_chunks_of_a_panel_line_are_kept() -> None:

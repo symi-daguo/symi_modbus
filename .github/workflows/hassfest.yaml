@@ -13,13 +13,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run hassfest
-        # The manifest plugin validates custom integrations against the core
-        # manifest schema, which rejects the keys HACS needs ("homeassistant",
-        # "icon" and "categories"). The other plugins still check the
-        # manifest, the services and the translations.
+        # The manifest now follows the core schema, so every plugin runs. A
+        # skipped plugin would hide a key that Home Assistant rejects.
         run: |
           docker run --rm \
             -v "${{ github.workspace }}://github/workspace" \
             ghcr.io/home-assistant/hassfest \
-            --action validate \
-            --skip-plugins manifest
+            --action validate

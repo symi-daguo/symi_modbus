@@ -103,11 +103,11 @@ class SymiProtocol(PanelProtocol):
     ) -> bytes:
         """Build the frame that drives the indicator light of a button.
 
-        The protocol document asks for the set frame, the panel answers with a
-        report frame. A report frame is only used for the panels that do not
-        answer the set frame. The address fields have to be the ones the panel
-        used in its button event, otherwise the panel ignores the frame and
-        the light stays dark.
+        The light is driven with a report frame. The set frame is the frame a
+        button event carries, so a panel reads it as a press again and the
+        light stays as it was. The address fields have to be the ones the
+        panel used in its button event, otherwise the panel ignores the frame
+        and the light stays dark.
         """
         data_type = (
             DATA_TYPE_SET
