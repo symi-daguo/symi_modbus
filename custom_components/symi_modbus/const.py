@@ -75,6 +75,7 @@ CONF_SLAVE_COUNT: Final = "slave_count"
 # Panel brands
 BRAND_SYMI: Final = "symi"
 BRAND_CLOWIRE: Final = "clowire"
+BRAND_FLK: Final = "flk"
 BRAND_LF: Final = "lf"
 
 # The frame the indicator light of a panel is driven with. The protocol

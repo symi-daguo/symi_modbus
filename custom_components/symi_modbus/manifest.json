@@ -13,5 +13,5 @@
     "pyserial>=3.5",
     "pyserial-asyncio-fast>=0.16"
   ],
-  "version": "2.6.11"
+  "version": "2.6.12"
 }

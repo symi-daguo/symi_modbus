@@ -11,7 +11,7 @@
 
 | | |
 |---|---|
-| 版本 | **2.6.11** |
+| 版本 | **2.6.12** |
 | Home Assistant | **2025.3.0** 及以上 |
 | 依赖 | `pyserial`、`pyserial-asyncio-fast` |
 
@@ -154,6 +154,11 @@ docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
 - `scripts/generate_brand.py` 从 `assets/icon_source.png` 重新生成品牌图片。
 
 ## 更新日志
+
+### 2.6.12
+
+- **支持 FLK（弗雷克）K7x 面板。** 按键用写单寄存器帧上报，指示灯是寄存器
+  `0x0032` 的位图。面板地址由拨码开关设定，等于每一帧的首字节。
 
 ### 2.6.11
 

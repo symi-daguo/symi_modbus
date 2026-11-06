@@ -13,7 +13,7 @@ wall panel buses and the links between a panel button and a relay.
 
 | | |
 |---|---|
-| Version | **2.6.11** |
+| Version | **2.6.12** |
 | Home Assistant | **2025.3.0** or newer |
 | Dependencies | `pyserial`, `pyserial-asyncio-fast` |
 
@@ -181,6 +181,13 @@ docker run --rm -v "$PWD:/work" -w /work homeassistant/home-assistant:stable \
 - `scripts/generate_brand.py` regenerates the brand images from `assets/icon_source.png`.
 
 ## Changelog
+
+### 2.6.12
+
+- **The FLK (弗雷克) K7x panels are supported.** A key is reported with a
+  write-single-register frame, the lights are a bit mask in the register
+  `0x0032`. The address of a panel is set by its DIP switches and is the first
+  byte of every frame.
 
 ### 2.6.11
 

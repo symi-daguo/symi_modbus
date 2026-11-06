@@ -208,3 +208,15 @@ docker logs --since 2m homeassistant 2>&1 | grep -ic 'not currently available'  
 
 验证：170 个单测通过；本机 HA `2026.10.2` 部署 `2.6.11` 后 `check_config` 通过、重启 3 秒 HTTP 200、无 ERROR；
 `scripts/verify_load.py` 场景二 100 开关（4 从站 × 32 线圈）、场景三 400 按钮（50 面板 × 8 键）通过。
+
+## 十、FLK 品牌合并到 2.6.12（2026-11-06）
+
+从 casaos25（`192.168.2.61`）拉取 FLK 接入的 4 个文件，按增量合并：
+
+- 新增 `panels/flk.py`（6073 B，与记录一致）。
+- `const.py` 加 `BRAND_FLK`；casaos25 版本把 `DEFAULT_LED_FRAME_TYPE` 改回 `SET`，**未采纳**，保留 2.6.11 的 `REPORT`。
+- `panels/__init__.py` 注册 `FlkProtocol`。
+- `config_flow.py` 下拉加 `FLK (弗雷克)`。
+- 新增 `tests/test_flk.py`：整包解析、8 键寄存器、分片续接、坏字节重同步、写灯帧/长按松开忽略、坏 CRC、mask 叠加。
+
+验证：180 个单测通过；本机 HA `2026.10.2` `check_config` 通过，`PROTOCOLS=['symi','clowire','lf','flk']`、`panel_keys('flk')=8`、下拉含 `flk`；重启 3 秒 HTTP 200，ERROR/Traceback/ImportError 0。

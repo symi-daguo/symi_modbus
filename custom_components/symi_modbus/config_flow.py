@@ -39,6 +39,7 @@ from .config_io import (
 )
 from .const import (
     BRAND_CLOWIRE,
+    BRAND_FLK,
     BRAND_LF,
     BRAND_SYMI,
     CONF_BAUDRATE,
@@ -156,6 +157,7 @@ PANEL_FIELDS = {
                 {"value": BRAND_SYMI, "label": "Symi (亖米)"},
                 {"value": BRAND_CLOWIRE, "label": "Clowire (克伦威尔)"},
                 {"value": BRAND_LF, "label": "LF (拉斐)"},
+                {"value": BRAND_FLK, "label": "FLK (弗雷克)"},
             ],
             mode=SelectSelectorMode.DROPDOWN,
         )
